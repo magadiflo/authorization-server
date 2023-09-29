@@ -49,3 +49,24 @@ logging:
     org.springframework.security.oauth2: trace
 ````
 
+## Componentes mínimos para un Authorization Server
+
+Empezaremos creando una clase de configuración relacionada con el usuario. Por el momento registraremos a nuestro
+usuario en memoria y utilizaremos `{noop}` junto a su contraseña para trabajarlo como texto plano. Más adelante,
+haremos uso de un `PasswordEncoder`:
+
+````java
+
+@Configuration
+public class UserManagementConfig {
+    @Bean
+    public UserDetailsService userDetailsService() {
+        UserDetails user = User.builder()
+                .username("user")
+                .password("{noop}12345")
+                .authorities("ROLE_USER")
+                .build();
+        return new InMemoryUserDetailsManager(user);
+    }
+}
+````
