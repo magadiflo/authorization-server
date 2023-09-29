@@ -326,6 +326,17 @@ seleccionado el `Basic Auth`. De todas maneras a continuación se explican los p
 - `code`, corresponde al `authorization code` obtenido en la página `oauthdebugger` luego de iniciar sesión
   exitosamente.
 
+**IMPORTANTE**
+> **Tenga en cuenta que un código de autorización solo se puede usar una vez.** Si intenta llamar al endpoint
+> `/oauth2/token` usando el mismo código nuevamente, recibirá un error como el que se muestra en la parte inferior.
+> Solo puede obtener otro código de autorización válido pidiéndole al usuario que inicie sesión nuevamente.
+
+````json
+{
+  "error": "invalid_grant"
+}
+````
+
 Finalmente, si decodificamos nuestro `access_token` veremos los datos que tenemos:
 
 ![7-decoded-access_token](./assets/7-decoded-access_token.png)
