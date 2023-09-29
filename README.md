@@ -223,3 +223,109 @@ public class SecurityConfig {
 - `(9)`, `KeyPair`: un simple soporte para un par de claves (una clave pública y una clave privada). No impone ninguna
   seguridad y, cuando se inicializa, debe tratarse como una PrivateKey.
 
+## Funcionamiento del Servidor de Autorización con los componentes mínimos configurados
+
+Ejecutamos nuestro `Authorization Server` y entramos mediante la
+url `http://localhost:9000/.well-known/oauth-authorization-server` de **nuestro servidor de autorización** y observamos
+un objeto json con endpoints disponibles:
+
+![1-endpoints-authorization-server](./assets/1-endpoints-authorization-server.png)
+
+Lo primero que debemos hacer es obtener un `Authorization Code`. Para eso utilizaremos el **endpoint** de la imagen
+anterior `"authorization_endpoint": "http://localhost:9000/oauth2/authorize"`.
+
+Ahora, como aún no hemos desarrollado el `frontEnd` necesitamos una forma de poder obtener el código de autorización
+mediante la url anterior. Para eso utilizaremos la página `oauthdebugger`:
+
+![2-oauthdebugger](./assets/2-oauthdebugger.png)
+
+En la página anterior, damos click en `Start over` y completamos los campos que se nos muestran:
+
+![3-oauthdebugger-configure-1](./assets/3-oauthdebugger-configure-1.jpeg)
+
+**DONDE**
+
+1. El `authorize URI` en el servidor de autorización es donde comienza un flujo OAuth 2.0. Aquí colocaremos la url
+   para obtener un `Authorization Code`.
+2. El `redirect URI` indica al emisor a dónde debe redirigir el navegador cuando finalice el flujo. Aquí debemos colocar
+   la url del `cliente (frontEnd)`. Por el momento, como aún no tenemos desarrollado nuestro propio `frontEnd` estamos
+   usando la dirección de `oauthdebugger` que configuramos para nuestro cliente registrado en el servidor de
+   autorización
+3. Cada cliente (sitio web o aplicación móvil) se identifica mediante un `client id`. A diferencia del `client secret`,
+   **el ID de cliente es un valor público que no es necesario proteger**. Aquí debemos colocar el client
+   id: `front-end-app` que registramos para nuestro cliente.
+4. Los clientes pueden solicitar información adicional o permisos mediante ámbitos. Aquí colocamos el scope `openid` que
+   registramos para nuestro cliente.
+5. El estado es un valor opcional que se lleva a través de todo el flujo y se devuelve al cliente. Es común utilizar el
+   estado para almacenar un token anti-falsificación que puede ser verificado después de que el flujo de inicio de
+   sesión se ha completado. Otro uso común es almacenar la ubicación a la que el usuario debe ser redirigido después de
+   iniciar sesión. Aquí, el valor es generado automáticamente por la página `oauthdebugger`.
+6. Un nonce (o número utilizado una vez) es un valor aleatorio que se utiliza para evitar ataques de repetición. Este
+   valor también es generado automáticamente por la página `oauthdebugger`.
+7. El `Response Type` es del tipo `authorization_code` que definimos como un `authorizationGrantType`.
+8. `¿Usamos PKCE?`, sí, precisamente es por eso que colocamos en `true` el `requireProofKey(...)` dentro del
+   método `ClientSettings`. Aquí además seleccionamos el `SHA-256`.
+9. El `code verifier` lo necesitamos para el flujo porque usaremos el `PKCE`.
+10. El `code challenge` lo necesitamos para el flujo porque usaremos el `PKCE`.
+11. El `Token URI` es desde donde obtendremos el access token.
+
+Finalmente, en la parte inferior de la página veremos el resumen de cómo se hará el request:
+
+![4-oauthdebugger-configure-2](./assets/4-oauthdebugger-configure-2.jpeg)
+
+Cliqueamos en `Send Request` y obtendremos el formulario de login proporcionado por nuestro servidor de autorización:
+
+![5-after-send-request](./assets/5-after-send-request.png)
+
+Nos logueamos con el usuario registrado dentro del servidor de autorización:
+
+![6-authorization-code-success](./assets/6-authorization-code-success.jpeg)
+
+Como observamos, estamos obteniendo el `Authorization code` que solicitamos. Recordemos que en el `redirect uri`
+definimos la dirección de la página de `oauthdebugger`, precisamente por esta razón, para obtener aquí el código de
+autorización, al menos por el momento mientras aún no tengamos nuestra aplicación `frontEnd`.
+
+Ahora, a partir del `Authorization Code` solicitaremos un `Access Token` y dado que el flujo se inició con un desafío de
+código `PKCE`, debemos tener en cuenta eso al momento de definir los parámetros de la solicitud, es decir, dentro del
+conjunto de parámetros a enviar debe estar el `code_verifier`:
+
+````bash
+curl -v -X POST -u front-end-app:secret-key -d "grant_type=authorization_code&client_id=front-end-app&redirect_uri=https://oauthdebugger.com/debug&code_verifier=cYKGgCAGUutO0B9q5kPCT16DA3JWQjqtXFFOIqTQ9Tp&code=fBY9BnOd9AABgdALk7PKucCtA6FoNN5AprDKM1rhoWUVHxihUhVqQUgYdb7-9z4GBL6oEb0AqCMTuCij0O2cjtGhRtP0OFQgrYa1a-ITtOUaKtfHDJl4R0NOezuuG7Dy" http://localhost:9000/oauth2/token | jq
+
+> POST /oauth2/token HTTP/1.1
+> Host: localhost:9000
+> Authorization: Basic ZnJvbnQtZW5kLWFwcDpzZWNyZXQta2V5
+> Content-Type: application/x-www-form-urlencoded
+> ...
+>
+< HTTP/1.1 200
+< Content-Type: application/json;charset=UTF-8
+< ...
+<
+{
+  "access_token": "eyJraWQiOiI4MzViZTNkOC1mZWFhLTRmZTQtOTI3YS1lMjRmNjliOGFjYTUiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyIiwiYXVkIjoiZnJvbnQtZW5kLWFwcCIsIm5iZiI6MTY5NjAwNDEzMSwic2NvcGUiOlsib3BlbmlkIl0sImlzcyI6Imh0dHA6Ly9sb2NhbGhvc3Q6OTAwMCIsImV4cCI6MTY5NjAwNDQzMSwiaWF0IjoxNjk2MDA0MTMxfQ.geTLlNriah-75L1zPw8aLBa9vxky9hQ5UQ9_gQFsN9qZRWqOdu-PVIAQmj9NH1yULrE6cxr9ixmudpXK5t0OZgnUpvWTW_Y48jm160jT6BmGfWdTTs2upPcBnGITFImGu3BugydsuuoJ8uQEbRUWa0CY-4s9kropJ4jCmOmDe8unKEtdJ36qRAWaNAztom7PxfuaTWpURTGVwFd0-MCQwKN6FhgLN7uE-twjfCgrZkiJ16n063MfolMXSaKx7jsQfF9Dr6cGP1epKavfbiosy-AN-CrLNf_ZlZMjDh9UCzsvETf7Fv36EYY1yF5_003FzwP1HD7StIjCMhvCqcEmqw",
+  "refresh_token": "JgzGIhXHlHAmEhRFpRiN11H6qKTXzCf22Wx4CNR_rxRmTG-qB-B2CR7U62h6sMyOeWI12sgWCK9EBP8z8T9WZoW44WCZvWuDUxjLgO90-wWDHbviqAm7ULS7h2CQmXao",
+  "scope": "openid",
+  "id_token": "eyJraWQiOiI4MzViZTNkOC1mZWFhLTRmZTQtOTI3YS1lMjRmNjliOGFjYTUiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyIiwiYXVkIjoiZnJvbnQtZW5kLWFwcCIsImF6cCI6ImZyb250LWVuZC1hcHAiLCJhdXRoX3RpbWUiOjE2OTYwMDE4NTIsImlzcyI6Imh0dHA6Ly9sb2NhbGhvc3Q6OTAwMCIsImV4cCI6MTY5NjAwNTkzMSwiaWF0IjoxNjk2MDA0MTMxLCJub25jZSI6ImRkM2VtbWY3ZHBxIiwic2lkIjoiczVLLXFEYVpXNUM5NFY4RksyYTcweHpKaC1VNHVWODJrdXFhV1Y1VVUtZyJ9.GJSi6KOMJCFSMsPvf6I_9KrnxnKbNlb6aIpCaJHpDCujzkcP1XTbqIWZ5R6cBF5Fc3GNLNZ1N8PVJOwVI5q2C-xhFnmFjKoClHcwfDu9pRQKJPgPWBwsoKjiSr6ekhFdD5sIzap67iR-_l4tXZ7HmdUJ0wLaMMcLVMVlsiq-ekxUzwkNzc6fOe4BVX56-yWn0BTRogSW-C7o6wDkPcF7c7OprvSyygk2Oi7CS5ayd-mSWdD9DVOuRegDl2WXfURz9P3SDYwX_aWRtuxsL1DkehK_EzHXZeLfI0i48-1MsmmjSaQivO_9dkHKW_z9uBITbJhOVlHsKAGHVncKnqZrCA",
+  "token_type": "Bearer",
+  "expires_in": 300
+}
+````
+
+Como observamos, utilizamos `curl` para enviar el request y poder obtener el `access_token`. También podríamos haber
+usado `Postman` y definido los parámetros en el `Body: x-www-form-urlencoded` y en el `Authorization` haber
+seleccionado el `Basic Auth`. De todas maneras a continuación se explican los parámetros usados:
+
+- `[POST] http://localhost:9000/oauth2/token`, para solicitar al servidor de autorización el access token.
+- `-u front-end-app:secret-key`, con esto definimos mediante curl el `Authorization: Basic Auth` colocando el username y
+  password correspondiente al `cliente` registrado en el servidor de autorización de OAuth2.
+- `grant_type`, el tipo de concesión es `authorization_code`.
+- `client_id`, el identificador del cliente registrado en el servidor de autorización.
+- `redirect_uri`, la uri de redirección registrado para el cliente en el servidor de autorización.
+- `code_verifier`, código que usamos porque activamos el uso de `PKCE`.
+- `code`, corresponde al `authorization code` obtenido en la página `oauthdebugger` luego de iniciar sesión
+  exitosamente.
+
+Finalmente, si decodificamos nuestro `access_token` veremos los datos que tenemos:
+
+![7-decoded-access_token](./assets/7-decoded-access_token.png)
