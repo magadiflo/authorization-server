@@ -489,3 +489,196 @@ public class User implements UserDetails {
     }
 }
 ````
+
+## Capas: controller, service y repository para la entidad User y Role
+
+Crearemos la **capa repository** para la entidad `User` y `Role` donde definiremos en cada uno un método personalizado:
+
+````java
+// IUserRepository
+public interface IUserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByUsername(String username);
+}
+
+// IRoleRepository
+public interface IRoleRepository extends JpaRepository<Role, Long> {
+    Optional<Role> findByRole(RoleName roleName);
+}
+````
+
+Antes de continuar con la **capa de servicio** necesitamos crear los **DTOs** que usaremos para enviar/recibir
+información al/desde cliente:
+
+````java
+// Record: MessageDTO
+public record MessageDTO(String message) {
+}
+
+// Record: CreateUserDTO
+public record CreateUserDTO(String username, String password, List<String> roles) {
+}
+````
+
+Ahora sí, es momento de crear la **capa de servicio**:
+
+````java
+public interface IUserService {
+    MessageDTO createUser(CreateUserDTO dto);
+}
+````
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Service
+public class UserServiceImpl implements IUserService {
+
+    private final IUserRepository userRepository;
+    private final IRoleRepository roleRepository;
+    private final PasswordEncoder passwordEncoder;
+
+    @Override
+    public MessageDTO createUser(CreateUserDTO dto) {
+        Set<Role> roles = dto.roles().stream()
+                .map(RoleName::valueOf)
+                .map(roleName -> this.roleRepository.findByRole(roleName)
+                        .orElseThrow(() -> new RuntimeException("Role no encontrado")))
+                .collect(Collectors.toSet());
+
+        User user = User.builder()
+                .username(dto.username())
+                .password(this.passwordEncoder.encode(dto.password()))
+                .roles(roles)
+                .build();
+
+        this.userRepository.save(user);
+
+        return new MessageDTO(String.format("Usuario %s guardado", user.getUsername()));
+    }
+}
+````
+
+También necesitamos crear una implementación de la interfaz `UserDetailsService`, pues como ahora vamos a utilizar una
+base de datos, necesitamos tener una implementación de esta interfaz para que busque al usuario por su username.
+Debemos recordar que en el capítulo anterior usamos la clase concreta `InMemoryUserDetailsManager(...)` como
+implementación del `UserDetailsService` que nos proporciona Spring para definir nuestro usuario, pero ahora, nosotros
+crearemos nuestra propia implementación del `UserDetailsService` y la anterior configuración será eliminada.
+
+Finalmente, toca crear nuestra **capa de controlador**:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/auth")
+public class AuthController {
+
+    private final IUserService userService;
+
+    @PostMapping
+    public ResponseEntity<MessageDTO> createUser(@RequestBody CreateUserDTO dto) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(this.userService.createUser(dto));
+    }
+}
+````
+
+## Configuraciones de seguridad
+
+Redefinimos el contenido de la clase `UserManagementConfig`, donde eliminaremos el `@Bean UserDetailsService` quien nos
+estaba retornando la implementación `InMemoryUserDetailsManager` con nuestro usuario, pues ya no lo necesitamos debido a
+que hemos creado una propia implementación. Además, requerimos ahora definir nuestro `@Bean` del `PasswordEncoder` para
+poder cifrar la contraseña del usuario y del cliente:
+
+````java
+
+@Configuration
+public class UserManagementConfig {
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+````
+
+Finalmente, en nuestra clase principal de configuración de seguridad `SecurityConfig` realizaremos algunas
+modificaciones:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+
+    private final PasswordEncoder passwordEncoder;
+
+    /* other code */
+
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers("/api/v1/auth/**").permitAll()
+                        .anyRequest().authenticated()
+                )
+                .formLogin(Customizer.withDefaults());
+        http.csrf(csrfConfigurer -> csrfConfigurer.ignoringRequestMatchers("/api/v1/auth/**"));
+        return http.build();
+    }
+
+    @Bean
+    public RegisteredClientRepository registeredClientRepository() {
+        RegisteredClient oidcClient = RegisteredClient.withId(UUID.randomUUID().toString())
+                .clientId("front-end-app")
+                .clientSecret(this.passwordEncoder.encode("secret-key"))
+                /* more configurations */
+                .build();
+
+        return new InMemoryRegisteredClientRepository(oidcClient);
+    }
+}
+````
+
+Como se observa en el código anterior, primero inyectamos el `PasswordEncoder` que usaremos para cifrar la contraseña
+del cliente. Luego, en el `@Bean` de order 2 permitimos que se puedan realizar solicitudes a nuestro endpoint
+`/api/v1/auth` si necesidad de autenticarse y además ignoramos el `CSRF` para ese mismo endpoint.
+
+Un cambio más que se hizo en la clase anterior fue el cifrado que se realizó al `clientSecret` del cliente registrado
+en memoria.
+
+## Registrando Roles en la base de datos
+
+Podemos crear manualmente en la base de datos los roles para nuestros usuarios en la aplicación, pero en esta
+oportunidad usaremos la interfaz funcional `CommandLineRunner` para poder definir un `@Bean` y desde allí poder
+registrar los roles usando el repositorio del rol:
+
+````java
+
+@RequiredArgsConstructor
+@SpringBootApplication
+public class MainApplication {
+
+    private final IRoleRepository roleRepository;
+
+    public static void main(String[] args) {
+        SpringApplication.run(MainApplication.class, args);
+    }
+
+    @Bean
+    public CommandLineRunner run() {
+        return args -> {
+            Role adminRole = Role.builder().role(RoleName.ROLE_ADMIN).build();
+            Role userRole = Role.builder().role(RoleName.ROLE_USER).build();
+            this.roleRepository.saveAll(List.of(adminRole, userRole));
+        };
+    }
+}
+````
+
+**NOTA**
+> **Este código debe ser ejecutado una vez**, luego de que verifiquemos que en nuestra base de datos ya están
+> registrados los dos roles, procederemos a comentar el código de inserción para que no lo vuelva a insertar cada vez
+> que iniciemos la aplicación, aunque también podríamos eliminarlo, pero en mi caso solo lo comentaré.
+
