@@ -6,6 +6,10 @@
 
 ---
 
+# CAPÍTULO 1: Configuración mínima del Authorization Server
+
+---
+
 ## Configuraciones iniciales
 
 Se muestran las dependencias que se usarán para nuestro proyecto **Authorization Server**:
@@ -269,6 +273,11 @@ En la página anterior, damos click en `Start over` y completamos los campos que
 10. El `code challenge` lo necesitamos para el flujo porque usaremos el `PKCE`.
 11. El `Token URI` es desde donde obtendremos el access token.
 
+**IMPORTANTE**
+
+> El encargado de generar el `code verifier` y el `code challenge` es el `client`, el servidor simplemente los comprueba
+> pero se desentiende totalmente. Lo que sí genera el servidor obviamente es el `authorization code`.
+
 Finalmente, en la parte inferior de la página veremos el resumen de cómo se hará el request:
 
 ![4-oauthdebugger-configure-2](./assets/4-oauthdebugger-configure-2.jpeg)
@@ -329,3 +338,64 @@ seleccionado el `Basic Auth`. De todas maneras a continuación se explican los p
 Finalmente, si decodificamos nuestro `access_token` veremos los datos que tenemos:
 
 ![7-decoded-access_token](./assets/7-decoded-access_token.png)
+
+---
+
+# CAPÍTULO 2: Registrando usuarios
+
+---
+
+## Dependencias y configuración del DataSource
+
+En este capítulo trabajaremos con la entidad `User` y su registro en bases de datos, para eso, necesitamos agregar las
+siguientes dos dependencias en nuestro `pom.xml`:
+
+````xml
+
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>com.mysql</groupId>
+        <artifactId>mysql-connector-j</artifactId>
+        <scope>runtime</scope>
+    </dependency>
+</dependencies>
+````
+
+Además, necesitamos configurar la conexión a la base de datos en el `application.yml`:
+
+````yaml
+# Otras configuraciones
+# 
+# Conexión a MySQL
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/db_spring_boot_oauth2
+    username: root
+    password: magadiflo
+
+  # Configuraciones de Hibernate/Jpa
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+    show-sql: true
+    defer-datasource-initialization: true
+    generate-ddl: false
+    hibernate:
+      ddl-auto: update
+````
+
+**DONDE**
+
+- `spring.jpa.defer-datasource-initialization = true`, se utiliza para controlar si Spring debe retrasar la
+  inicialización del DataSource hasta después de que se haya configurado la capa de persistencia JPA. Por defecto, los
+  scripts `data.sql` se ejecutan antes de que se inicialice Hibernate. Necesitamos que Hibernate cree nuestras tablas
+  antes de insertar los datos en ellas. Para conseguirlo, necesitamos retrasar la inicialización de nuestro DataSource.
+  Aunque vale la pena precisar, por el momento no estamos usando ningún script, pero lo dejaré configurado tal como lo
+  está trabajando el tutor.
