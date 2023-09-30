@@ -239,7 +239,7 @@ Lo primero que debemos hacer es obtener un `Authorization Code`. Para eso utiliz
 anterior `"authorization_endpoint": "http://localhost:9000/oauth2/authorize"`.
 
 Ahora, como aún no hemos desarrollado el `frontEnd` necesitamos una forma de poder obtener el código de autorización
-mediante la url anterior. Para eso utilizaremos la página `oauthdebugger`:
+mediante la url anterior. Para eso utilizaremos la página [oauthdebugger](https://oauthdebugger.com/debug):
 
 ![2-oauthdebugger](./assets/2-oauthdebugger.png)
 
@@ -682,3 +682,74 @@ public class MainApplication {
 > registrados los dos roles, procederemos a comentar el código de inserción para que no lo vuelva a insertar cada vez
 > que iniciemos la aplicación, aunque también podríamos eliminarlo, pero en mi caso solo lo comentaré.
 
+## Ejecutando aplicación
+
+Luego de ejecutar la aplicación por primera vez, en consola se mostrará el comando utilizado para la creación de
+las tablas y posteriormente la inserción de los registros de roles. Luego, si revisamos la base de datos observaremos
+que nuestras tablas fueron creados correctamente:
+
+![8-users-roles-db](./assets/8-users-roles-db.png)
+
+El siguiente paso es crear un par de usuarios, uno será `user` y el otro `admin`:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"username\": \"admin\", \"password\": \"12345\", \"roles\": [\"ROLE_ADMIN\", \"ROLE_USER\"]}" http://localhost:9000/api/v1/auth | jq
+
+>
+< HTTP/1.1 201
+<
+{
+  "message": "Usuario admin guardado"
+}
+````
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"username\": \"user\", \"password\": \"12345\", \"roles\": [\"ROLE_USER\"]}" http://localhost:9000/api/v1/auth | jq
+
+>
+< HTTP/1.1 201
+<
+{
+  "message": "Usuario user guardado"
+}
+````
+
+Ahora, utilizaremos la página de [oauthdebugger](https://oauthdebugger.com/debug) para solicitar un código de
+autorización. Las configuraciones serán similares a la configuración que vimos en el primer capítulo:
+
+![9-oauthdebugger](./assets/9-oauthdebugger.png)
+
+Luego de hacer clic en `send request` la página de **oauthdebugger** nos redireccionará al login donde podremos usar
+nuestros usuarios recién registrados:
+
+![10-login](./assets/10-login.png)
+
+Al loguearnos, seremos redirigidos a la página de **authdebugger** donde tendremos el **código de autorización**
+solicitado:
+
+![11-debugger-success.png](./assets/11-debugger-success.png)
+
+Ahora utilizaremos el **código de autorización** para solicitar un **access token** al **servidor de autorización**,
+obviamente requerimos los otros datos adicionales como el **client_id**, credenciales del cliente enviados vía
+Authentication Basic Auth, etc. pero el punto aquí, es que nos estamos enfocando en cómo es que usamos el
+`authorization code` para solicitar el `access token` al servidor de autorización:
+
+````bash
+curl -v -X POST -u front-end-app:secret-key -d "grant_type=authorization_code&client_id=front-end-app&redirect_uri=https://oauthdebugger.com/debug&code_verifier=yvlVXnbW7RKFj9Aq3GCB8QlFq1mnGJxYaIusXUxk477&code=JFP0_xKNJZoIawPhTPcowiPGp-qT9enMehaoUBWMGd4hrx1jkEYQxd5pA63kF3lPiEgA5NCBD6ujjCQy5ThCwlS8YTRq2uhTdPLv6dMsKWPg1nhORjx-eU7TNoIMLA-I" http://localhost:9000/oauth2/token | jq
+
+> POST /oauth2/token HTTP/1.1
+> Host: localhost:9000
+> Authorization: Basic ZnJvbnQtZW5kLWFwcDpzZWNyZXQta2V5
+> Content-Type: application/x-www-form-urlencoded
+>
+< HTTP/1.1 200
+<
+{
+  "access_token": "eyJraWQiOiI3YWU5ZDk4NC02MzY4LTQxNzItOWY0NC1kZjkxYTM2MDhjZGMiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImF1ZCI6ImZyb250LWVuZC1hcHAiLCJuYmYiOjE2OTYwNTIwMjQsInNjb3BlIjpbIm9wZW5pZCJdLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJleHAiOjE2OTYwNTIzMjQsImlhdCI6MTY5NjA1MjAyNH0.dtbVzhv4l2X-4grxn5DXUiOJkmgU_LkB5cehPBF05s25Fs64IaYhq4DYkC54-LiimYnc2YqjDnaw9DYfWBBRNyoy_WQQeSITaBmBRCGLFHBq-1IrttelBrgAVf_RGYiAOhbV7Yr6Nsx78iO72zzzOP_4WXHG_sO3npSlbK9KNGejEoO8XgdKzxEeLzQCqgMt4zZrK_cr9Q2TZ1CALKsss7n76EbekStwxXC8ajAP4l82TxOotJIxaPvch6Rj2cuF8C1YYJmPCT5nfBN3S5cURswpBBIkgQwVej62B-KlWn3-k7AZCSFXQGyDJHC1sQNE2BdR9vSPFNPl8LigKFIr-Q",
+  "refresh_token": "Lc2WgjSgoxmURd-xXp_uSmKfjfLb2ij-Urn8kABIsBZOCXtLCzFQDOXRIDCZqFXv2OK1bkcUDyYp8PakFk9gQy_rq0JkpQ3PXZE4WpYmYwKGU3v4AMe4ilP5gTjnfTKy",
+  "scope": "openid",
+  "id_token": "eyJraWQiOiI3YWU5ZDk4NC02MzY4LTQxNzItOWY0NC1kZjkxYTM2MDhjZGMiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImF1ZCI6ImZyb250LWVuZC1hcHAiLCJhenAiOiJmcm9udC1lbmQtYXBwIiwiYXV0aF90aW1lIjoxNjk2MDUxNzM5LCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJleHAiOjE2OTYwNTM4MjQsImlhdCI6MTY5NjA1MjAyNCwibm9uY2UiOiJtc2c5Z24wdGl4NyIsInNpZCI6Im9rR21WSmF1TW8xRHQzVHc3UkVHeVMzSUliYV9oRUx6LVRzV2RhZkRYNkUifQ.BUQeiZ-Y0t9iKo4LO7tn2PMriTCCVzo95zlaH8FV1Ez_6B_YHvrQWCKJ9LWQRk2W1PwVY9G3SAy4AzjKhARPedJZGU3f07ZpV-3Y6bXNf6r61dpkT82zcdAAPRr4bPgMKp-enWaQsO0PjJuhDkZLvIC4YR-B7evWIizhk7FdxTTqEkjEH1lh2Hq3sQuwsPhbtrmJZz4HmtVnBeG9-UDKIYdvmdDVooNga2HCToYwTpFW9bzMcCAaeZlwWktZNGHsikeH0DdHPlUMlC-CbmH4qJbD5gun-VeLL3ZoYf2pKjYweR-kDZKG4Eb5YFlXtVz5rkv0bF7TzYginuOZFBQNTg",
+  "token_type": "Bearer",
+  "expires_in": 299
+}
+````
