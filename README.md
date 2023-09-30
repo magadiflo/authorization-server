@@ -399,3 +399,93 @@ spring:
   antes de insertar los datos en ellas. Para conseguirlo, necesitamos retrasar la inicialización de nuestro DataSource.
   Aunque vale la pena precisar, por el momento no estamos usando ningún script, pero lo dejaré configurado tal como lo
   está trabajando el tutor.
+
+## Entidad User y Role
+
+Crearemos un enum llamado `RoleName` donde definiremos los dos roles que estarán disponibles en nuestra aplicación:
+
+````java
+public enum RoleName {
+    ROLE_ADMIN, ROLE_USER
+}
+````
+
+Creamos la entidad `Role`:
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Entity
+@Table(name = "roles")
+public class Role implements GrantedAuthority {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    @Enumerated(EnumType.STRING)
+    private RoleName role;
+
+    @Override
+    public String getAuthority() {
+        return this.role.name();
+    }
+}
+````
+
+Creamos la entidad `User` y establecemos la relación de `@ManyToMany` con la entidad `Role`:
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Entity
+@Table(name = "users")
+public class User implements UserDetails {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String username;
+    private String password;
+
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(name = "users_roles",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "role_id")
+    )
+    private Set<Role> roles = new HashSet<>();
+
+    private boolean expired = false;
+    private boolean locked = false;
+    private boolean credentialsExpired = false;
+    private boolean disabled = false;
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return this.roles;
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return !this.expired;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return !this.locked;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return !this.credentialsExpired;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return !this.disabled;
+    }
+}
+````
