@@ -6,6 +6,10 @@
 
 ---
 
+# CAPÍTULO 1: Configuración mínima del Authorization Server
+
+---
+
 ## Configuraciones iniciales
 
 Se muestran las dependencias que se usarán para nuestro proyecto **Authorization Server**:
@@ -235,7 +239,7 @@ Lo primero que debemos hacer es obtener un `Authorization Code`. Para eso utiliz
 anterior `"authorization_endpoint": "http://localhost:9000/oauth2/authorize"`.
 
 Ahora, como aún no hemos desarrollado el `frontEnd` necesitamos una forma de poder obtener el código de autorización
-mediante la url anterior. Para eso utilizaremos la página `oauthdebugger`:
+mediante la url anterior. Para eso utilizaremos la página [oauthdebugger](https://oauthdebugger.com/debug):
 
 ![2-oauthdebugger](./assets/2-oauthdebugger.png)
 
@@ -268,6 +272,11 @@ En la página anterior, damos click en `Start over` y completamos los campos que
 9. El `code verifier` lo necesitamos para el flujo porque usaremos el `PKCE`.
 10. El `code challenge` lo necesitamos para el flujo porque usaremos el `PKCE`.
 11. El `Token URI` es desde donde obtendremos el access token.
+
+**IMPORTANTE**
+
+> El encargado de generar el `code verifier` y el `code challenge` es el `client`, el servidor simplemente los comprueba
+> pero se desentiende totalmente. Lo que sí genera el servidor obviamente es el `authorization code`.
 
 Finalmente, en la parte inferior de la página veremos el resumen de cómo se hará el request:
 
@@ -340,3 +349,418 @@ seleccionado el `Basic Auth`. De todas maneras a continuación se explican los p
 Finalmente, si decodificamos nuestro `access_token` veremos los datos que tenemos:
 
 ![7-decoded-access_token](./assets/7-decoded-access_token.png)
+
+---
+
+# CAPÍTULO 2: Registrando usuarios
+
+---
+
+## Dependencias y configuración del DataSource
+
+En este capítulo trabajaremos con la entidad `User` y su registro en bases de datos, para eso, necesitamos agregar las
+siguientes dos dependencias en nuestro `pom.xml`:
+
+````xml
+
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>com.mysql</groupId>
+        <artifactId>mysql-connector-j</artifactId>
+        <scope>runtime</scope>
+    </dependency>
+</dependencies>
+````
+
+Además, necesitamos configurar la conexión a la base de datos en el `application.yml`:
+
+````yaml
+# Otras configuraciones
+# 
+# Conexión a MySQL
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/db_spring_boot_oauth2
+    username: root
+    password: magadiflo
+
+  # Configuraciones de Hibernate/Jpa
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+    show-sql: true
+    defer-datasource-initialization: true
+    generate-ddl: false
+    hibernate:
+      ddl-auto: update
+````
+
+**DONDE**
+
+- `spring.jpa.defer-datasource-initialization = true`, se utiliza para controlar si Spring debe retrasar la
+  inicialización del DataSource hasta después de que se haya configurado la capa de persistencia JPA. Por defecto, los
+  scripts `data.sql` se ejecutan antes de que se inicialice Hibernate. Necesitamos que Hibernate cree nuestras tablas
+  antes de insertar los datos en ellas. Para conseguirlo, necesitamos retrasar la inicialización de nuestro DataSource.
+  Aunque vale la pena precisar, por el momento no estamos usando ningún script, pero lo dejaré configurado tal como lo
+  está trabajando el tutor.
+
+## Entidad User y Role
+
+Crearemos un enum llamado `RoleName` donde definiremos los dos roles que estarán disponibles en nuestra aplicación:
+
+````java
+public enum RoleName {
+    ROLE_ADMIN, ROLE_USER
+}
+````
+
+Creamos la entidad `Role`:
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Entity
+@Table(name = "roles")
+public class Role implements GrantedAuthority {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    @Enumerated(EnumType.STRING)
+    private RoleName role;
+
+    @Override
+    public String getAuthority() {
+        return this.role.name();
+    }
+}
+````
+
+Creamos la entidad `User` y establecemos la relación de `@ManyToMany` con la entidad `Role`:
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Entity
+@Table(name = "users")
+public class User implements UserDetails {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String username;
+    private String password;
+
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(name = "users_roles",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "role_id")
+    )
+    private Set<Role> roles = new HashSet<>();
+
+    private boolean expired = false;
+    private boolean locked = false;
+    private boolean credentialsExpired = false;
+    private boolean disabled = false;
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return this.roles;
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return !this.expired;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return !this.locked;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return !this.credentialsExpired;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return !this.disabled;
+    }
+}
+````
+
+## Capas: controller, service y repository para la entidad User y Role
+
+Crearemos la **capa repository** para la entidad `User` y `Role` donde definiremos en cada uno un método personalizado:
+
+````java
+// IUserRepository
+public interface IUserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByUsername(String username);
+}
+
+// IRoleRepository
+public interface IRoleRepository extends JpaRepository<Role, Long> {
+    Optional<Role> findByRole(RoleName roleName);
+}
+````
+
+Antes de continuar con la **capa de servicio** necesitamos crear los **DTOs** que usaremos para enviar/recibir
+información al/desde cliente:
+
+````java
+// Record: MessageDTO
+public record MessageDTO(String message) {
+}
+
+// Record: CreateUserDTO
+public record CreateUserDTO(String username, String password, List<String> roles) {
+}
+````
+
+Ahora sí, es momento de crear la **capa de servicio**:
+
+````java
+public interface IUserService {
+    MessageDTO createUser(CreateUserDTO dto);
+}
+````
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Service
+public class UserServiceImpl implements IUserService {
+
+    private final IUserRepository userRepository;
+    private final IRoleRepository roleRepository;
+    private final PasswordEncoder passwordEncoder;
+
+    @Override
+    public MessageDTO createUser(CreateUserDTO dto) {
+        Set<Role> roles = dto.roles().stream()
+                .map(RoleName::valueOf)
+                .map(roleName -> this.roleRepository.findByRole(roleName)
+                        .orElseThrow(() -> new RuntimeException("Role no encontrado")))
+                .collect(Collectors.toSet());
+
+        User user = User.builder()
+                .username(dto.username())
+                .password(this.passwordEncoder.encode(dto.password()))
+                .roles(roles)
+                .build();
+
+        this.userRepository.save(user);
+
+        return new MessageDTO(String.format("Usuario %s guardado", user.getUsername()));
+    }
+}
+````
+
+También necesitamos crear una implementación de la interfaz `UserDetailsService`, pues como ahora vamos a utilizar una
+base de datos, necesitamos tener una implementación de esta interfaz para que busque al usuario por su username.
+Debemos recordar que en el capítulo anterior usamos la clase concreta `InMemoryUserDetailsManager(...)` como
+implementación del `UserDetailsService` que nos proporciona Spring para definir nuestro usuario, pero ahora, nosotros
+crearemos nuestra propia implementación del `UserDetailsService` y la anterior configuración será eliminada.
+
+Finalmente, toca crear nuestra **capa de controlador**:
+
+````java
+
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/auth")
+public class AuthController {
+
+    private final IUserService userService;
+
+    @PostMapping
+    public ResponseEntity<MessageDTO> createUser(@RequestBody CreateUserDTO dto) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(this.userService.createUser(dto));
+    }
+}
+````
+
+## Configuraciones de seguridad
+
+Redefinimos el contenido de la clase `UserManagementConfig`, donde eliminaremos el `@Bean UserDetailsService` quien nos
+estaba retornando la implementación `InMemoryUserDetailsManager` con nuestro usuario, pues ya no lo necesitamos debido a
+que hemos creado una propia implementación. Además, requerimos ahora definir nuestro `@Bean` del `PasswordEncoder` para
+poder cifrar la contraseña del usuario y del cliente:
+
+````java
+
+@Configuration
+public class UserManagementConfig {
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+````
+
+Finalmente, en nuestra clase principal de configuración de seguridad `SecurityConfig` realizaremos algunas
+modificaciones:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+
+    private final PasswordEncoder passwordEncoder;
+
+    /* other code */
+
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers("/api/v1/auth/**").permitAll()
+                        .anyRequest().authenticated()
+                )
+                .formLogin(Customizer.withDefaults());
+        http.csrf(csrfConfigurer -> csrfConfigurer.ignoringRequestMatchers("/api/v1/auth/**"));
+        return http.build();
+    }
+
+    @Bean
+    public RegisteredClientRepository registeredClientRepository() {
+        RegisteredClient oidcClient = RegisteredClient.withId(UUID.randomUUID().toString())
+                .clientId("front-end-app")
+                .clientSecret(this.passwordEncoder.encode("secret-key"))
+                /* more configurations */
+                .build();
+
+        return new InMemoryRegisteredClientRepository(oidcClient);
+    }
+}
+````
+
+Como se observa en el código anterior, primero inyectamos el `PasswordEncoder` que usaremos para cifrar la contraseña
+del cliente. Luego, en el `@Bean` de order 2 permitimos que se puedan realizar solicitudes a nuestro endpoint
+`/api/v1/auth` si necesidad de autenticarse y además ignoramos el `CSRF` para ese mismo endpoint.
+
+Un cambio más que se hizo en la clase anterior fue el cifrado que se realizó al `clientSecret` del cliente registrado
+en memoria.
+
+## Registrando Roles en la base de datos
+
+Podemos crear manualmente en la base de datos los roles para nuestros usuarios en la aplicación, pero en esta
+oportunidad usaremos la interfaz funcional `CommandLineRunner` para poder definir un `@Bean` y desde allí poder
+registrar los roles usando el repositorio del rol:
+
+````java
+
+@RequiredArgsConstructor
+@SpringBootApplication
+public class MainApplication {
+
+    private final IRoleRepository roleRepository;
+
+    public static void main(String[] args) {
+        SpringApplication.run(MainApplication.class, args);
+    }
+
+    @Bean
+    public CommandLineRunner run() {
+        return args -> {
+            Role adminRole = Role.builder().role(RoleName.ROLE_ADMIN).build();
+            Role userRole = Role.builder().role(RoleName.ROLE_USER).build();
+            this.roleRepository.saveAll(List.of(adminRole, userRole));
+        };
+    }
+}
+````
+
+**NOTA**
+> **Este código debe ser ejecutado una vez**, luego de que verifiquemos que en nuestra base de datos ya están
+> registrados los dos roles, procederemos a comentar el código de inserción para que no lo vuelva a insertar cada vez
+> que iniciemos la aplicación, aunque también podríamos eliminarlo, pero en mi caso solo lo comentaré.
+
+## Ejecutando aplicación
+
+Luego de ejecutar la aplicación por primera vez, en consola se mostrará el comando utilizado para la creación de
+las tablas y posteriormente la inserción de los registros de roles. Luego, si revisamos la base de datos observaremos
+que nuestras tablas fueron creados correctamente:
+
+![8-users-roles-db](./assets/8-users-roles-db.png)
+
+El siguiente paso es crear un par de usuarios, uno será `user` y el otro `admin`:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"username\": \"admin\", \"password\": \"12345\", \"roles\": [\"ROLE_ADMIN\", \"ROLE_USER\"]}" http://localhost:9000/api/v1/auth | jq
+
+>
+< HTTP/1.1 201
+<
+{
+  "message": "Usuario admin guardado"
+}
+````
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"username\": \"user\", \"password\": \"12345\", \"roles\": [\"ROLE_USER\"]}" http://localhost:9000/api/v1/auth | jq
+
+>
+< HTTP/1.1 201
+<
+{
+  "message": "Usuario user guardado"
+}
+````
+
+Ahora, utilizaremos la página de [oauthdebugger](https://oauthdebugger.com/debug) para solicitar un código de
+autorización. Las configuraciones serán similares a la configuración que vimos en el primer capítulo:
+
+![9-oauthdebugger](./assets/9-oauthdebugger.png)
+
+Luego de hacer clic en `send request` la página de **oauthdebugger** nos redireccionará al login donde podremos usar
+nuestros usuarios recién registrados:
+
+![10-login](./assets/10-login.png)
+
+Al loguearnos, seremos redirigidos a la página de **authdebugger** donde tendremos el **código de autorización**
+solicitado:
+
+![11-debugger-success.png](./assets/11-debugger-success.png)
+
+Ahora utilizaremos el **código de autorización** para solicitar un **access token** al **servidor de autorización**,
+obviamente requerimos los otros datos adicionales como el **client_id**, credenciales del cliente enviados vía
+Authentication Basic Auth, etc. pero el punto aquí, es que nos estamos enfocando en cómo es que usamos el
+`authorization code` para solicitar el `access token` al servidor de autorización:
+
+````bash
+curl -v -X POST -u front-end-app:secret-key -d "grant_type=authorization_code&client_id=front-end-app&redirect_uri=https://oauthdebugger.com/debug&code_verifier=yvlVXnbW7RKFj9Aq3GCB8QlFq1mnGJxYaIusXUxk477&code=JFP0_xKNJZoIawPhTPcowiPGp-qT9enMehaoUBWMGd4hrx1jkEYQxd5pA63kF3lPiEgA5NCBD6ujjCQy5ThCwlS8YTRq2uhTdPLv6dMsKWPg1nhORjx-eU7TNoIMLA-I" http://localhost:9000/oauth2/token | jq
+
+> POST /oauth2/token HTTP/1.1
+> Host: localhost:9000
+> Authorization: Basic ZnJvbnQtZW5kLWFwcDpzZWNyZXQta2V5
+> Content-Type: application/x-www-form-urlencoded
+>
+< HTTP/1.1 200
+<
+{
+  "access_token": "eyJraWQiOiI3YWU5ZDk4NC02MzY4LTQxNzItOWY0NC1kZjkxYTM2MDhjZGMiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImF1ZCI6ImZyb250LWVuZC1hcHAiLCJuYmYiOjE2OTYwNTIwMjQsInNjb3BlIjpbIm9wZW5pZCJdLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJleHAiOjE2OTYwNTIzMjQsImlhdCI6MTY5NjA1MjAyNH0.dtbVzhv4l2X-4grxn5DXUiOJkmgU_LkB5cehPBF05s25Fs64IaYhq4DYkC54-LiimYnc2YqjDnaw9DYfWBBRNyoy_WQQeSITaBmBRCGLFHBq-1IrttelBrgAVf_RGYiAOhbV7Yr6Nsx78iO72zzzOP_4WXHG_sO3npSlbK9KNGejEoO8XgdKzxEeLzQCqgMt4zZrK_cr9Q2TZ1CALKsss7n76EbekStwxXC8ajAP4l82TxOotJIxaPvch6Rj2cuF8C1YYJmPCT5nfBN3S5cURswpBBIkgQwVej62B-KlWn3-k7AZCSFXQGyDJHC1sQNE2BdR9vSPFNPl8LigKFIr-Q",
+  "refresh_token": "Lc2WgjSgoxmURd-xXp_uSmKfjfLb2ij-Urn8kABIsBZOCXtLCzFQDOXRIDCZqFXv2OK1bkcUDyYp8PakFk9gQy_rq0JkpQ3PXZE4WpYmYwKGU3v4AMe4ilP5gTjnfTKy",
+  "scope": "openid",
+  "id_token": "eyJraWQiOiI3YWU5ZDk4NC02MzY4LTQxNzItOWY0NC1kZjkxYTM2MDhjZGMiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImF1ZCI6ImZyb250LWVuZC1hcHAiLCJhenAiOiJmcm9udC1lbmQtYXBwIiwiYXV0aF90aW1lIjoxNjk2MDUxNzM5LCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJleHAiOjE2OTYwNTM4MjQsImlhdCI6MTY5NjA1MjAyNCwibm9uY2UiOiJtc2c5Z24wdGl4NyIsInNpZCI6Im9rR21WSmF1TW8xRHQzVHc3UkVHeVMzSUliYV9oRUx6LVRzV2RhZkRYNkUifQ.BUQeiZ-Y0t9iKo4LO7tn2PMriTCCVzo95zlaH8FV1Ez_6B_YHvrQWCKJ9LWQRk2W1PwVY9G3SAy4AzjKhARPedJZGU3f07ZpV-3Y6bXNf6r61dpkT82zcdAAPRr4bPgMKp-enWaQsO0PjJuhDkZLvIC4YR-B7evWIizhk7FdxTTqEkjEH1lh2Hq3sQuwsPhbtrmJZz4HmtVnBeG9-UDKIYdvmdDVooNga2HCToYwTpFW9bzMcCAaeZlwWktZNGHsikeH0DdHPlUMlC-CbmH4qJbD5gun-VeLL3ZoYf2pKjYweR-kDZKG4Eb5YFlXtVz5rkv0bF7TzYginuOZFBQNTg",
+  "token_type": "Bearer",
+  "expires_in": 299
+}
+````
