@@ -764,3 +764,90 @@ curl -v -X POST -u front-end-app:secret-key -d "grant_type=authorization_code&cl
   "expires_in": 299
 }
 ````
+
+Si decodificamos el **access_token** obtenido veremos la información que contiene:
+
+![12-decoded_access_token_user_db](./assets/12-decoded_access_token_user_db.png)
+
+## Añadiendo Claims al JWT
+
+La información decodificada del `access_token` anterior `no muestra el rol` que le asignamos al usuario `admin`, pese a
+que sí tiene roles y están registrados en la base de datos. Entonces, lo que debemos hacer es modificar el jwt
+agregándole los claims faltantes.
+
+En la clase `SecurityConfig` agregamos un nuevo `@Bean` que nos permitirá agregar el rol o roles del usuario al jwt:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+    /* other code */
+    @Bean
+    public OAuth2TokenCustomizer<JwtEncodingContext> tokenCustomizer() {
+        return context -> {
+            Authentication principal = context.getPrincipal();
+            if (context.getTokenType().getValue().equals("id_token")) {
+                context.getClaims()
+                        .claim("token_type", "id token")
+                        .build();
+            }
+            if (context.getTokenType().getValue().equals("access_token")) {
+                Set<String> roles = principal.getAuthorities().stream()
+                        .map(GrantedAuthority::getAuthority)
+                        .collect(Collectors.toSet());
+
+                context.getClaims()
+                        .claim("token_type", "access token")
+                        .claim("username", principal.getName())
+                        .claim("roles", roles)
+                        .build();
+            }
+        };
+    }
+    /* other code */
+}
+````
+
+**DONDE**
+
+- `OAuth2TokenCustomizer`, las implementaciones de esta interfaz son responsables de personalizar los atributos del
+  token OAuth 2.0 contenidos en OAuth2TokenContext.
+- `context`, el contexto que contiene los atributos del token OAuth 2.0.
+
+### Verificando información añadida en el access_token
+
+Iniciamos la aplicación e ingresamos a la página de [oauthdebugger.com/debug](https://oauthdebugger.com/debug),
+completamos los datos solicitados como lo hemos venido trabajando desde el inicio y copiamos el **code verifier**,
+damos en `send request`, iniciamos sesión con nuestra cuenta `admin` y pass `12345` para que el servidor de autorización
+nos retorne un `authorization code`.
+
+Con el código de autorización y el code verifier en nuestras manos, procedemos a solicitar el token:
+
+````bash
+curl -v -X POST -u front-end-app:secret-key -d "grant_type=authorization_code&client_id=front-end-app&redirect_uri=https://oauthdebugger.com/debug&code_verifier=CPsSpKNiVfsbw7RuDvP8jeZ9BeyFjtwOMd6lDfCvscu&code=ZuEPt_Q1mWd8kgMt9z7mURJeYJpRSWv1lmuwhp_sh6fW4Uq3cN8ECIKHhjApxulDIKk40cqkMwsYtHSffPkCY5tWKMcc9qK3KhAGtoqAWpDqlgfffrO3_lIHm9pxroqn" http://localhost:9000/oauth2/token | jq
+
+> POST /oauth2/token HTTP/1.1
+> Host: localhost:9000
+> Authorization: Basic ZnJvbnQtZW5kLWFwcDpzZWNyZXQta2V5
+> Content-Type: application/x-www-form-urlencoded
+>
+< HTTP/1.1 200
+<
+{
+  "access_token": "eyJraWQiOiJmZmE2M2RlZi1mMDAwLTRkYjUtOGRkOS1hZTYwZWIzZmJiNTEiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImF1ZCI6ImZyb250LWVuZC1hcHAiLCJuYmYiOjE2OTYyMDE4NDgsInNjb3BlIjpbIm9wZW5pZCJdLCJyb2xlcyI6WyJST0xFX1VTRVIiLCJST0xFX0FETUlOIl0sImlzcyI6Imh0dHA6Ly9sb2NhbGhvc3Q6OTAwMCIsImV4cCI6MTY5NjIwMjE0OCwidG9rZW5fdHlwZSI6ImFjY2VzcyB0b2tlbiIsImlhdCI6MTY5NjIwMTg0OCwidXNlcm5hbWUiOiJhZG1pbiJ9.IubqkYkDBVqHJqnn47TluGreuw3vyORrJ6zbB6iPR1m0-ieu3IHIAyQLdjSJsj5eAMBn8Y1JuuMun8DQB9Aek72dVn64ofFCLBffjn84yh5kfe3kRrk4x30bBBBvi1BGrDOBMjzKBCqdSmQra7bO8VwBFDXWXlJijXbkEaYycCt9NywCS7IGuA3-B4rMmfxzdZ7mz_WbipE14qAqmEjrNd2r64shyOb0vrLFZxmX7sJ8Zr_PJpzYXIUAdwsJfb0zdi9m-RHFF0rDPZcpGVDK8DYo2j5L4MS8va4c97qrxBXb0ncntadfU_q4fpW_fU95YtWcHLcRhbOSQkF5bTF7-Q",
+  "refresh_token": "KjmkllHaiQRpTPjHqLQl1ydDORGoFAf4Z2L-56MU0AAjtFYBz5VkFdTEqWmg_O5YGRIJDFfdzQ8_1td1XuvRqmzyo9TvNpZgnaM2A3HQnxNg1WTJZxQHKKdrS8ovun-T",
+  "scope": "openid",
+  "id_token": "eyJraWQiOiJmZmE2M2RlZi1mMDAwLTRkYjUtOGRkOS1hZTYwZWIzZmJiNTEiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImF1ZCI6ImZyb250LWVuZC1hcHAiLCJhenAiOiJmcm9udC1lbmQtYXBwIiwiYXV0aF90aW1lIjoxNjk2MjAxNTIwLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJleHAiOjE2OTYyMDM2NDgsInRva2VuX3R5cGUiOiJpZCB0b2tlbiIsImlhdCI6MTY5NjIwMTg0OCwibm9uY2UiOiJ2d2VyOWZvaDF0ZCIsInNpZCI6ImJJZnNwcENqaU8tUlIyWHdnWmNibXY2VjFaWVB2bXZyTmpJS1pQQ1c0X00ifQ.wiXUmtBFdwPReIos9zSHzkj-036fmeUQFcY5l3rndyXvXim2nNyRAemPLDEkt3TGhtk65DYZYN9L-Hjr1PjQyp6y-_ayZh1JmhHhQ8mdXLlXM5xPZEho0Rt4FgAw-B-z4c--iVXWiAt3PmiufNpItFZAJGavAmvL19DWDBbCGU6zQ_Y8zO8xApcHpIeYBcWAhNo_3qraCGXFFvedqm-Q_670E_u3EkqjZU-CrU0IjHBht-9ZELV0myYFpS9mFwqq4PKpn0-Ri8D129Pm9hu6KDX_p9klrYkH2idXBCdT4DPduNqqf_vHdxJfqTg618QDvab4yoYoxsay6fpor5Ki2Q",
+  "token_type": "Bearer",
+  "expires_in": 300
+}
+
+````
+
+Ahora, si decodificamos el **access_token** veremos que ya tenemos la información que le agregamos en la configuración:
+
+![13-decoded-access_token-roles](./assets/13-decoded-access_token-roles.png)
+
