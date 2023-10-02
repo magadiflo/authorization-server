@@ -851,3 +851,306 @@ Ahora, si decodificamos el **access_token** veremos que ya tenemos la informaci�
 
 ![13-decoded-access_token-roles](./assets/13-decoded-access_token-roles.png)
 
+---
+
+# CAPÍTULO 3: Registrando clientes (frontEnd)
+
+---
+
+En el capítulo anterior trabajamos con la entidad `User` que nos permitió registrar usuarios en la base de datos. En
+este capítulo trabajaremos con la entidad `Client` que hace referencia al `Cliente` dentro de la arquitectura de
+`OAuth2`, es decir información sobre nuestra aplicación cliente que será registrado en el servidor de Autorización.
+
+## Entidad Client
+
+Recordemos que en los capítulos anteriores se creó un cliente llamado `front-end-app` a quien registré en memoria
+dentro del servidor de autorización. Este cliente fue un objeto del tipo `RegisteredClient` **(representación de un
+cliente que está registrado en el servidor de autorización)** a quien le definimos varios
+atributos, tales como: **withId(), clientId(), clientSecret(), clientAuthenticationMethod(), etc.** Ahora, necesitamos
+tener esa representación del cliente pero para poder registrarlo en la base de datos, por lo tanto, crearemos nuestra
+entidad `Client` que tendrá los mismos atributos mencionados anteriormente:
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Entity
+@Table(name = "clients")
+public class Client {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String clientId;
+    private String clientSecret;
+    @ElementCollection(fetch = FetchType.EAGER)
+    private Set<ClientAuthenticationMethod> clientAuthenticationMethods;
+    @ElementCollection(fetch = FetchType.EAGER)
+    private Set<AuthorizationGrantType> authorizationGrantTypes;
+    @ElementCollection(fetch = FetchType.EAGER)
+    private Set<String> redirectUris;
+    @ElementCollection(fetch = FetchType.EAGER)
+    private Set<String> scopes;
+    private boolean requireProofKey;
+
+    public static RegisteredClient toRegisteredClient(Client client) {
+        return RegisteredClient.withId(client.getClientId())
+                .clientId(client.getClientId())
+                .clientSecret(client.getClientSecret())
+                .clientIdIssuedAt(Instant.now())
+                .clientAuthenticationMethods(clientAM -> clientAM.addAll(client.getClientAuthenticationMethods()))
+                .authorizationGrantTypes(authorizationGT -> authorizationGT.addAll(client.getAuthorizationGrantTypes()))
+                .redirectUris(redirectUris -> redirectUris.addAll(client.getRedirectUris()))
+                .scopes(scopes -> scopes.addAll(client.getScopes()))
+                .clientSettings(ClientSettings.builder().requireProofKey(client.isRequireProofKey()).build())
+                .build();
+    }
+}
+````
+
+La anotación `@ElementCollection(fetch = FetchType.EAGER)` fue colocada en todas las propiedades de colección con la
+finalidad que al ejecutar la aplicación Hibernate/JPA creará una nueva tabla de la propiedad sobre la que está anotada
+conteniendo además la referencia a esta tabla cliente. Es decir, en la base de datos se creará la entidad `Client`
+conteniendo únicamente 4 columnas: **id, clientId, clientSecret y requireProofKey**; mientras que, para las demás
+propiedades de colección se creará su respectiva tabla con una referencia a la entidad `Client`. Esto es para no entrar
+tanto en detalles, porque fácilmente habríamos creado una entidad por cada colección y haber establecido la relación con
+la entidad Client mediante código, pero para hacerlo rápido es que usamos la anotación
+`ElementCollection(fetch = FetchType.EAGER)`. Ah, si por ejemplo, no usáramos la anotación en la propiedad de colección,
+lo que pasará es que se creará en la entidad `Client` la propiedad de colección y será del tipo `Varbinary`.
+
+Adicionalmente, observamos que creamos un método estático `toRegisteredClient()` para que a partir de una
+entidad `Client` podamos convertirlo a una representación de un cliente que está registrado en el servidor de
+autorización: `RegisteredClient`.
+
+**IMPORTANTE**
+> Se tomó como referencia además la documentación
+> [spring-authorization-server/client-entity](https://docs.spring.io/spring-authorization-server/docs/current/reference/html/guides/how-to-jpa.html#client-entity)
+
+## Client Repository y DTO
+
+Creamos el repositorio `IClientRepository` para la entidad `Client` donde definiremos un método personalizado para poder
+recuperar el Client a través de su atributo `clientId`:
+
+````java
+public interface IClientRepository extends JpaRepository<Client, Long> {
+    Optional<Client> findByClientId(String clientId);
+}
+````
+
+Creamos nuestro `CreateClientDTO`:
+
+````java
+public record CreateClientDTO(String clientId, String clientSecret,
+                              Set<ClientAuthenticationMethod> clientAuthenticationMethods,
+                              Set<AuthorizationGrantType> authorizationGrantTypes, Set<String> redirectUris,
+                              Set<String> scopes, boolean requireProofKey) {
+}
+````
+
+## Client Service
+
+Si vemos los capítulos iniciales, recordaremos que creamos un `@Bean` en el `SecurityConfig` del tipo
+`RegisteredClientRepository` **(un repositorio para clientes registrados de OAuth 2.0.)** que era el tipo del método
+con el que retornábamos al cliente registrado. Ahora, como ese `@Bean` será eliminado, pues hasta este punto ya estamos
+trabajando con base de datos, necesitamos de todas maneras tener ese objeto para poder manipular a los clientes
+registrados en OAuth2.
+
+Entonces, crearemos una interfaz llamada `IClientService` que extenderá de la interfaz `RegisteredClientRepository` que
+es propio del servidor de autorización OAuth2. **¿Por qué hago eso?**, porque si observamos los métodos que tiene la
+segunda interfaz veremos que son:
+
+````java
+public interface RegisteredClientRepository {
+    void save(RegisteredClient registeredClient);
+
+    @Nullable
+    RegisteredClient findById(String id);
+
+    @Nullable
+    RegisteredClient findByClientId(String clientId);
+}
+````
+
+El método `save()` retorna un `void` y lo que en nuestro caso queremos hacer es retornar un objeto del
+tipo `MessageDTO`, por lo tanto, necesitamos definir un método personalizado en nuestra interfaz del servicio para
+poder crear el registro del Cliente y luego retornar el objeto del tipo `MessageDTO`. Al hacer esto, cuando
+implementemos la interfaz `IClientService` en la clase concreta `ClientServiceImpl` sobreescribiremos todos los métodos
+que existan en ambas interfaces:
+
+````java
+public interface IClientService extends RegisteredClientRepository {
+    MessageDTO create(CreateClientDTO dto);
+}
+````
+
+Creamos la interfaz `ClientServiceImpl` e implementamos su interfaz `IClientService` que a su vez está extendiendo
+de `RegisteredClientRepository`:
+
+````java
+
+@RequiredArgsConstructor
+@Slf4j
+@Service
+public class ClientServiceImpl implements IClientService {
+
+    private final IClientRepository clientRepository;
+    private final PasswordEncoder passwordEncoder;
+
+    @Override
+    public MessageDTO create(CreateClientDTO dto) {
+        Client client = this.clientFromDto(dto);
+        this.clientRepository.save(client);
+        return new MessageDTO(String.format("Cliente %s registrado", client.getClientId()));
+    }
+
+    @Override
+    public void save(RegisteredClient registeredClient) {
+        // No usamos este save(...), creamos nuestro propio método create() para registrar al cliente en la BD
+    }
+
+    @Override
+    public RegisteredClient findById(String id) {
+        return this.findClientByClientId(id);
+    }
+
+    @Override
+    public RegisteredClient findByClientId(String clientId) {
+        return this.findClientByClientId(clientId);
+    }
+
+    private RegisteredClient findClientByClientId(String clientId) {
+        return this.clientRepository.findByClientId(clientId)
+                .map(Client::toRegisteredClient)
+                .orElseThrow(() -> new RuntimeException("Cliente no encontrado"));
+    }
+
+    private Client clientFromDto(CreateClientDTO dto) {
+        return Client.builder()
+                .clientId(dto.clientId())
+                .clientSecret(this.passwordEncoder.encode(dto.clientSecret()))
+                .clientAuthenticationMethods(dto.clientAuthenticationMethods())
+                .authorizationGrantTypes(dto.authorizationGrantTypes())
+                .redirectUris(dto.redirectUris())
+                .scopes(dto.scopes())
+                .requireProofKey(dto.requireProofKey())
+                .build();
+    }
+}
+````
+
+## Client Controller
+
+Creamos el controlador que nos permitirá definir un endpoint para poder crear a los clientes:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/clients")
+public class ClientController {
+
+    private final IClientService clientService;
+
+    @PostMapping
+    public ResponseEntity<MessageDTO> create(@RequestBody CreateClientDTO dto) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(this.clientService.create(dto));
+    }
+
+}
+````
+
+## Modificando la clase SecurityConfig
+
+Habilitamos el endpoint `/api/v1/clients`:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+    /* other code */
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers("/api/v1/auth/**", "/api/v1/clients/**").permitAll()
+                        .anyRequest().authenticated()
+                )
+                .formLogin(Customizer.withDefaults());
+        http.csrf(csrfConfigurer -> csrfConfigurer.ignoringRequestMatchers("/api/v1/auth/**", "/api/v1/clients/**"));
+        return http.build();
+    }
+    /* other code */
+}
+````
+
+Notar que en esta clase eliminamos el `@Bean RegisteredClientRepository y el ClientSettings`, ya que ya no lo
+necesitamos, pues ahora registraremos a nuestros clientes en base de datos.
+
+## Ejecutando aplicación y registrando un cliente
+
+Al ejecutar la aplicación por primera vez vemos que se nos crean nuevas tablas en la base de datos:
+
+![Clients db](./assets/14-clients-db.png)
+
+Hasta este punto no tenemos ningún cliente registrado, por lo que si nos intentamos loguear nos lanzará un error:
+
+![15-login-sin-cliente-en-bd](./assets/15-login-sin-cliente-en-bd.png)
+
+![16-error-login-sin-cliente-bd](./assets/16-error-login-sin-cliente-bd.png)
+
+**NOTA**
+> Recordar que este proceso de login es utilizando la página de [oauthdebugger/debug](https://oauthdebugger.com/debug`)
+
+Ahora, procedemos a registrar nuestro cliente `front-end-app`:
+
+````bash
+curl -v -X POST -H "Content-Type: application/json" -d "{\"clientId\": \"front-end-app\", \"clientSecret\": \"secret-key\", \"clientAuthenticationMethods\": [\"client_secret_basic\"], \"authorizationGrantTypes\": [\"authorization_code\", \"refresh_token\", \"client_credentials\"], \"redirectUris\": [\"https://oauthdebugger.com/debug\"], \"scopes\": [\"openid\"], \"requireProofKey\": true}" http://localhost:9000/api/v1/clients | jq
+
+>
+< HTTP/1.1 201
+<
+{
+  "message": "Cliente front-end-app registrado"
+}
+````
+
+Listo, ahora sí tenemos registrado a un cliente en la base de datos, por lo que en esta ocasión el proceso de logueo,
+que es para solicitar un `Authorization Code` sí funcionará:
+
+![17-login-success-authorization-code](./assets/17-login-success-authorization-code.png)
+
+Ahora utilizaremos dicho código para solicitar el `Access Token`:
+
+````bash
+curl -v -X POST -u front-end-app:secret-key -d "grant_type=authorization_code&client_id=front-end-app&redirect_uri=https://oauthdebugger.com/debug&code_verifier=BxD0xaf1Qal7ETQ8zGfFbWQu6rljnsMVQX2EJ8Fjswm&code=bX_9YzpJgXoeXpj7_bO_poOVaryjtdEcGOQl5dYrDGRSZ8YjEA3NhKFaPhhv7-xfkLYZXqJD-TK-PKxciV5X9nM9yiQaflM2IFMzdYSpNCnUSPxA_ZUEAGp5GCBTN3zH" http://localhost:9000/oauth2/token | jq
+
+> POST /oauth2/token HTTP/1.1
+> Host: localhost:9000
+> Authorization: Basic ZnJvbnQtZW5kLWFwcDpzZWNyZXQta2V5
+> Content-Type: application/x-www-form-urlencoded
+>
+} [290 bytes data]
+< HTTP/1.1 200
+<
+{
+  "access_token": "eyJraWQiOiJkZGU3YzIxOS0zNTE4LTRhNGMtOTc1ZC0zOGYzYjE5M2IzN2IiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImF1ZCI6ImZyb250LWVuZC1hcHAiLCJuYmYiOjE2OTYyMjQ5NzEsInNjb3BlIjpbIm9wZW5pZCJdLCJyb2xlcyI6WyJST0xFX1VTRVIiLCJST0xFX0FETUlOIl0sImlzcyI6Imh0dHA6Ly9sb2NhbGhvc3Q6OTAwMCIsImV4cCI6MTY5NjIyNTI3MSwidG9rZW5fdHlwZSI6ImFjY2VzcyB0b2tlbiIsImlhdCI6MTY5NjIyNDk3MSwidXNlcm5hbWUiOiJhZG1pbiJ9.ngmILqUIEoTYA9SrxMH6ambnwa3mFI7ZroRR42luJ-HBr4UtzkbXpZUoiCwGK_05FYUaXyHP56qPONkunpaA3TnUBorvCCkqMWcn5S1B62_LJ-6Yue2PW42h5NQQteb70XxEedeCQNk86ThhCNxAbHFLpyOMX6G3ICVDCol97MJYKQchmCco2uqXXxG9S_JdpPu-fHdatwxURunzrtGJinmaJdcOw8ErQzar4gkpLZHp8Aay7ndAhyYc6HpI6z2Fjpy41oZE06eg8pccz_kPCwIz7JcyAlY6m_mS_dWE6YPR6z1hXjRlW6QImB7KQwXug1rcIi76_UmmafT9b5zDjg",
+  "refresh_token": "1UXYTLyGN6tQEVRgxLdW9c9I4Cv1ck1d5HLVBUEFnRyKmDNz8DoCeA9cw6jmXZ81IuijLQk1v2qZJ82oJcV07hKU1fChncQ67WX07_zi8xOO0wN6GlpmEvy0Bf4q8zg7",
+  "scope": "openid",
+  "id_token": "eyJraWQiOiJkZGU3YzIxOS0zNTE4LTRhNGMtOTc1ZC0zOGYzYjE5M2IzN2IiLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsImF1ZCI6ImZyb250LWVuZC1hcHAiLCJhenAiOiJmcm9udC1lbmQtYXBwIiwiYXV0aF90aW1lIjoxNjk2MjI0Nzk3LCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjkwMDAiLCJleHAiOjE2OTYyMjY3NzEsInRva2VuX3R5cGUiOiJpZCB0b2tlbiIsImlhdCI6MTY5NjIyNDk3MSwibm9uY2UiOiJqYWF0bDBzcGFlcyIsInNpZCI6IlJrVTY4QlVZaHAxd1o1XzZfRVFiY19UUEktRTBzeWlQSjc2TzZseU45VmsifQ.j8e0KB_5Y265ZeCyaFUwHrFVyJeqAdbjcNW8OoqPU0PImi641WJC-E-fmFSRzfzpyN_shkUi77V5m3kWDLrBu_KfCnIDyjuZjQyDDdnr7LsUK1uN8EtwG68lbMim5itKCAZRDKufUU3zn6_fn3C40Ygp0Uy8VrnhSKFZecRnESE8qr5wwaVthsSgduUZkkMPRPJvrC-3skD7TVFwipZLpulKSFLtLSRp9Sbin4yhAh_1x-qSZv8jouy7aDX6Dc3tSQaVfRHvFPH6l3FqIxllWEMH167O6e5KxM_1ZEC35U1kAktVtg6uZt3t4XqUaO-BdrS5bLy9G-50n4xkHbPBHQ",
+  "token_type": "Bearer",
+  "expires_in": 299
+}
+````
+
+Como observamos, todo está funcionando como antes, pero ahora nuestro `Cliente` **ya se encuentra registrado en
+la base de datos** y no solo en memoria como lo teníamos en los capítulos iniciales.
+
+Finalmente, hasta este punto, las tablas relacionadas con el `Authorization Server` quedarían de esta manera en la base
+de datos:
+
+![18.authorization-server-db](./assets/18.authorization-server-db.png)
