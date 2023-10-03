@@ -1159,10 +1159,14 @@ de datos:
 
 # CAPÍTULO 5: Social Login - Google
 
-No coloco **CAPÍTULO 4** porque siguiendo el listado del tutorial el capítulo 4 trató sobre la implementación del
-[**Resource Server**](https://github.com/magadiflo/resource-server.git).
+- No coloco **CAPÍTULO 4** porque siguiendo el listado del tutorial el capítulo 4 trató sobre la implementación del
+  [**Resource Server**](https://github.com/magadiflo/resource-server.git).
+- **Referencia Oficial:**
+  [Cómo: Autenticación mediante Social Login](https://docs.spring.io/spring-authorization-server/docs/current/reference/html/guides/how-to-social-login.html)
 
 ---
+
+## Registro con el proveedor de inicio de sesión social
 
 Utilizaremos `Google` para que los usuarios puedan iniciar sesión. En ese sentido, el servidor de `Google` se convertirá
 en nuestro `Authorization Server` para esta nueva funcionalidad de social login, mientras que nuestra aplicación de
@@ -1206,18 +1210,50 @@ Credenciales y **CREAR CREDENCIALES**:
 
 ![25-cliente-google-7](./assets/25-cliente-google-7.png)
 
-Esta parte es muy importante, ya que aquí seleccionamos que el tipo de aplicación que vamos a registrar, en nuestro caso
-será una **Aplicación Web** y además le tenemos que dar un nombre a nuestra aplicación cliente. Otro punto importante,
-es que en la parte inferior agregamos explícitamente las url de redireccionamiento que están autorizados para nuestra
-aplicación cliente:
+**Esta parte es muy importante**, ya que aquí seleccionamos que el tipo de aplicación que vamos a registrar, en nuestro
+caso será una **Aplicación Web** y además le tenemos que **dar un nombre a nuestra aplicación cliente**. Otro punto
+importante es que en la parte inferior agregamos explícitamente las url de redireccionamiento que están autorizados
+para nuestra aplicación cliente.
+
+Según la **documentación oficial** que referencié al inicio de este capítulo, menciona que cuando lleguemos a este
+punto del registro donde nos soliciten especificar un **URI de redirección**, debemos definir un `registrationId`
+(como google, my-client o cualquier otro identificador único que desee) que utilizaremos para configurar tanto
+Spring Security como su proveedor. En mi caso, elegí como un `registrationId` a `google-idp`. Si observamos la imagen
+inferior, veremos que he encerrado en un círculo naranja ese identificador.
+
+El `registrationId` **es un identificador único para el ClientRegistration en Spring Security**. La plantilla
+Redirect URI predeterminada es `{baseUrl}/login/oauth2/code/{registrationId}`. Consulte
+[Configuración del URI de redirección](https://docs.spring.io/spring-security/reference/servlet/oauth2/login/core.html#oauth2login-sample-redirect-uri)
+en la referencia de Spring Security para obtener más información.
 
 ![26-cliente-google-8](./assets/26-cliente-google-8.png)
+
+**NOTA**
+> Las demás uris de redireccionamiento las coloqué siguiendo el video del tutorial, aunque según la documentación
+> oficial, nos muestra como único uri de redireccionamiento el que configuramos con nuestro registrationId
+> **google-idp**: `http://localhost:9000/login/oauth2/code/google-idp`
 
 Finalmente, como último paso, Google nos mostrará las credenciales que deberá tener nuestra aplicación cliente:
 
 ![27-cliente-google-9](./assets/27-cliente-google-9.png)
 
-## Nuevas Dependencias
+## Usando .env en IntelliJ IDEA
+
+Las credenciales que nos generó google no la debemos subir al repositorio por lo que optaremos por crear un archivo
+`.env` en la raíz de nuestro proyecto donde definiremos las variables de entorno que contendrán nuestras credenciales:
+
+````dotenv
+GOOGLE_CLIENT_ID=580379...
+GOOGLE_CLIENT_SECRET=GOCS...
+````
+
+Como estamos trabajando con **IntelliJ IDEA** necesitamos de alguna forma leer el archivo `.env` cada vez que ejecutemos
+la aplicación, para eso debemos instalar el plugin [EnvFile](https://plugins.jetbrains.com/plugin/7861-envfile) y
+a continuación agregar el archivo `.env` en la configuración de ejecución:
+
+![28-env-intellij-idea](./assets/28-env-intellij-idea.png)
+
+## Añadir dependencia de cliente OAuth2
 
 En este capítulo, como estamos viendo el tema del **Social Login**, el **servidor de autorización** que creamos en los
 capítulos iniciales con Spring Boot 3, las dependencias de OAuth2 Authorization Server, etc., ahora se convertirá
@@ -1240,7 +1276,47 @@ por lo que necesitamos agregar la dependencia de `thymeleaf`:
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-thymeleaf</artifactId>
     </dependency>
-
     <!--Other dependencies-->
 </dependencies>
 ````
+
+## Registrar un cliente
+
+A continuación, configure el `ClientRegistration` con los valores obtenidos anteriormente. Usando Google, configure las
+siguientes propiedades:
+
+````yml
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          google-idp:
+            provider: google
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: openid, https://www.googleapis.com/auth/userinfo.profile, https://www.googleapis.com/auth/userinfo.email
+            client-name: authorization-server-spring-boot-as-a-client
+        provider:
+          google:
+            user-name-attribute: email
+````
+
+**DONDE**<br>
+Fuente 1: [OpenId-Connect](https://developers.google.com/identity/openid-connect/openid-connect?hl=es-419#appsetup)<br>
+Fuente 2: [OAuth2/scopes](https://developers.google.com/identity/protocols/oauth2/scopes?hl=es-419)
+
+- El `registrationId` en el ejemplo anterior es `google-idp`, mismo que usamos en el uri de redireccionamiento de
+  google.
+- `provider`, es `google` como nuestro proveedor de inicio de sesión social.
+- `client-id`, la string del ID de cliente que obtienes de `Credentials page` de API Console.
+- `scope`, debe comenzar con el valor `openid` y, luego, incluir el valor `profile`, el valor `email` o ambos.
+    - **openid**, asocie su cuenta con su información personal en Google.
+    - **https://www.googleapis.com/auth/userinfo.profile**, permite ver su información personal, incluidos los datos
+      personales que haya hecho públicos.
+    - **https://www.googleapis.com/auth/userinfo.email**, consultar la dirección de correo electrónico principal de su
+      Cuenta de Google.
+- `client-name`, el nombre de tu cliente de OAuth 2.0. Este nombre solo se usa para identificar al cliente en la
+  consola de `google cloud` y no se mostrará a los usuarios finales.
+- `user-name-attribute`, el claim en `id_token` o en la respuesta de información del usuario que contiene el username
+  del usuario.

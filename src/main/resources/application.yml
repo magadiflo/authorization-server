@@ -22,3 +22,17 @@ spring:
     generate-ddl: false
     hibernate:
       ddl-auto: update
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google-idp:
+            provider: google
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: openid, https://www.googleapis.com/auth/userinfo.profile, https://www.googleapis.com/auth/userinfo.email
+            client-name: authorization-server-spring-boot-as-a-client
+        provider:
+          google:
+            user-name-attribute: email
