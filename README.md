@@ -1109,7 +1109,7 @@ Hasta este punto no tenemos ningún cliente registrado, por lo que si nos intent
 Ahora, procedemos a registrar nuestro cliente `front-end-app`:
 
 ````bash
-curl -v -X POST -H "Content-Type: application/json" -d "{\"clientId\": \"front-end-app\", \"clientSecret\": \"secret-key\", \"clientAuthenticationMethods\": [\"client_secret_basic\"], \"authorizationGrantTypes\": [\"authorization_code\", \"refresh_token\", \"client_credentials\"], \"redirectUris\": [\"https://oauthdebugger.com/debug\"], \"scopes\": [\"openid\"], \"requireProofKey\": true}" http://localhost:9000/api/v1/clients | jq
+curl -v -X POST -H "Content-Type: application/json" -d "{\"clientId\": \"front-end-app\", \"clientSecret\": \"secret-key\", \"clientAuthenticationMethods\": [\"client_secret_basic\"], \"authorizationGrantTypes\": [\"authorization_code\", \"refresh_token\", \"client_credentials\"], \"redirectUris\": [\"https://oauthdebugger.com/debug\"], \"scopes\": [\"openid\", \"profile\"], \"requireProofKey\": true}" http://localhost:9000/api/v1/clients | jq
 
 >
 < HTTP/1.1 201
@@ -1217,3 +1217,30 @@ Finalmente, como último paso, Google nos mostrará las credenciales que deberá
 
 ![27-cliente-google-9](./assets/27-cliente-google-9.png)
 
+## Nuevas Dependencias
+
+En este capítulo, como estamos viendo el tema del **Social Login**, el **servidor de autorización** que creamos en los
+capítulos iniciales con Spring Boot 3, las dependencias de OAuth2 Authorization Server, etc., ahora se convertirá
+en un **Cliente** de **Google** y es **Google** quien ahora, será nuestro **Servidor de Autorización**; esa fue
+la razón por la que en la sección anterior creamos los credenciales que usará esta aplicación cliente.
+
+Entonces, como necesitamos que esta aplicación **authorization-server** sea un cliente OAuth2 de Google, agregaremos
+la dependencia `spring-boot-starter-oauth2-client`; además, crearemos nuestro propio formulario html de login y logout,
+por lo que necesitamos agregar la dependencia de `thymeleaf`:
+
+````xml
+
+<dependencies>
+    <!--Other dependencies-->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-oauth2-client</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-thymeleaf</artifactId>
+    </dependency>
+
+    <!--Other dependencies-->
+</dependencies>
+````
