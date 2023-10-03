@@ -1154,3 +1154,66 @@ Finalmente, hasta este punto, las tablas relacionadas con el `Authorization Serv
 de datos:
 
 ![18.authorization-server-db](./assets/18.authorization-server-db.png)
+
+---
+
+# CAPÍTULO 5: Social Login - Google
+
+No coloco **CAPÍTULO 4** porque siguiendo el listado del tutorial el capítulo 4 trató sobre la implementación del
+[**Resource Server**](https://github.com/magadiflo/resource-server.git).
+
+---
+
+Utilizaremos `Google` para que los usuarios puedan iniciar sesión. En ese sentido, el servidor de `Google` se convertirá
+en nuestro `Authorization Server` para esta nueva funcionalidad de social login, mientras que nuestra aplicación de
+`Spring Boot 3 authorization-server` se convertirá en un `cliente` del `Servidor de Autorización de Google`, por lo
+tanto, necesitamos generar las credenciales para nuestra aplicación cliente (authorization-server), de esa manera
+estaremos registrándolo en el servidor de Google.
+
+> Con nuestra **cuenta de google iniciada**, accedemos a [console.cloud.google](https://console.cloud.google.com)
+
+Como yo ya había trabajado anteriormente con **Google Cloud** es que aparece por defecto seleccionado el último proyecto
+en el que trabajé. Entonces, **para poder crear un nuevo proyecto**, debemos hacer click en el `Select` y se nos abrirá
+el
+modal. Luego, en el paso **3** agrego un nombre al proyecto y damos en crear:
+
+![19-cliente-google-1](./assets/19-cliente-google-1.png)
+
+Ahora que tenemos creado el proyecto lo seleccionamos y vamos a la opción de **API APIs y servicios**:
+
+![20-cliente-google-2](./assets/20-cliente-google-2.png)
+
+Seguimos las siguientes opciones:
+
+![21-cliente-google-3](./assets/21-cliente-google-3.png)
+
+Seleccionamos la opción de **Externos** y damos en crear:
+
+![22-cliente-google-4](./assets/22-cliente-google-4.png)
+
+En la siguiente pantalla damos un nombre a la aplicación, colocamos nuestro correo de gmail 2 veces y damos en
+**Guardar y Continuar**:
+
+![23-cliente-google-5](./assets/23-cliente-google-5.png)
+
+En la siguiente pantalla simplemente damos en **Guardar y Continuar** que nos llevará a la página para poder agregar
+usuarios de prueba. Aquí es donde me agregaré a mí mismo como un usuario de prueba, luego damos **Guardar y Continuar**:
+
+![24-cliente-google-6](./assets/24-cliente-google-6.png)
+
+Luego de la pantalla anterior daremos click en el botón **VOLVER AL PANEL**. Ya en el panel, daremos clic en
+Credenciales y **CREAR CREDENCIALES**:
+
+![25-cliente-google-7](./assets/25-cliente-google-7.png)
+
+Esta parte es muy importante, ya que aquí seleccionamos que el tipo de aplicación que vamos a registrar, en nuestro caso
+será una **Aplicación Web** y además le tenemos que dar un nombre a nuestra aplicación cliente. Otro punto importante,
+es que en la parte inferior agregamos explícitamente las url de redireccionamiento que están autorizados para nuestra
+aplicación cliente:
+
+![26-cliente-google-8](./assets/26-cliente-google-8.png)
+
+Finalmente, como último paso, Google nos mostrará las credenciales que deberá tener nuestra aplicación cliente:
+
+![27-cliente-google-9](./assets/27-cliente-google-9.png)
+
