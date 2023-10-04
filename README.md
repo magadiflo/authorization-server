@@ -1538,3 +1538,74 @@ public final class FederatedIdentityConfigure extends AbstractHttpConfigurer<Fed
 > mientras que las clases `FederatedIdentityAuthenticationEntryPoint` y `FederatedIdentityConfigure` fueron copiadas
 > tal cual del tutorial, que a su vez lo copió del repositorio de Spring que está en GitHub.
 
+## Configurar autenticación
+
+Finalmente, para configurar `Spring Authorization Server` para usar un `proveedor de inicio de sesión social` para la
+autenticación, puede usar **oauth2Login()** en lugar de **formLogin()**, **aunque en mi caso usamos los dos**. También
+puede redirigir automáticamente a un usuario no autenticado al proveedor configurando **excepciónHandling()** con un
+**AuthenticationEntryPoint**.
+
+A continuación solo se muestran los cambios que realizaron en el `SecurityConfig`:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    @Order(1)
+    public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+        OAuth2AuthorizationServerConfiguration.applyDefaultSecurity(http);
+        http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
+                .oidc(Customizer.withDefaults()); // Enable OpenID Connect 1.0
+
+        // Aceptar access_tokens para Información de Usuario y/o Registro de Cliente
+        http.oauth2ResourceServer(resourceServer -> resourceServer.jwt(Customizer.withDefaults()));
+        http.apply(new FederatedIdentityConfigure());
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        FederatedIdentityConfigure federatedIdentityConfigure = new FederatedIdentityConfigure()
+                .oauth2UserHandler(new UserRepositoryOAuth2UserHandler());
+
+        http.authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers("/api/v1/auth/**", "/api/v1/clients/**", "/login").permitAll()
+                        .anyRequest().authenticated()
+                )
+                .formLogin(Customizer.withDefaults())
+                .apply(federatedIdentityConfigure);
+        http.csrf(csrfConfigurer -> csrfConfigurer.ignoringRequestMatchers("/api/v1/auth/**", "/api/v1/clients/**", "/login"));
+        return http.build();
+    }
+
+    /* other code */
+
+    @Bean
+    public SessionRegistry sessionRegistry() {
+        return new SessionRegistryImpl();
+    }
+
+    @Bean
+    public HttpSessionEventPublisher httpSessionEventPublisher() {
+        return new HttpSessionEventPublisher();
+    }
+
+    @Bean
+    public OAuth2AuthorizationService authorizationService() {
+        return new InMemoryOAuth2AuthorizationService();
+    }
+
+    @Bean
+    public OAuth2AuthorizationConsentService authorizationConsentService() {
+        return new InMemoryOAuth2AuthorizationConsentService();
+    }
+
+    /* other code */
+}
+````
