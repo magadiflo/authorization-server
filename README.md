@@ -1788,3 +1788,62 @@ public interface IGoogleUserRepository extends JpaRepository<GoogleUser, Long> {
     Optional<GoogleUser> findByEmail(String email);
 }
 ````
+
+## Configuración para el registro de usuario GoogleUser
+
+Para poder registrar al usuario de google necesitamos hacer una modificación a la clase
+`UserRepositoryOAuth2UserHandler` en el que usaremos la interfaz `IGoogleUserRepository` que nos permitirá buscar al
+usuario y realizar su registro:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+public final class UserRepositoryOAuth2UserHandler implements Consumer<OAuth2User> {
+
+    private final IGoogleUserRepository googleUserRepository;
+
+    @Override
+    public void accept(OAuth2User user) {
+        // Capturar el usuario en una base de datos en la primera autenticación
+        if (this.googleUserRepository.findByEmail(user.getName()).isEmpty()) {
+            StringBuilder sb = new StringBuilder("Guardando usuario de Google por primera vez: ")
+                    .append("name: ").append(user.getName())
+                    .append(", claims: ").append(user.getAttributes())
+                    .append(", authorities: ").append(user.getAuthorities());
+            System.out.println(sb);
+            GoogleUser googleUser = GoogleUser.fromOauth2User(user);
+            log.info("googleUser: {}", googleUser);
+            this.googleUserRepository.save(googleUser);
+        } else {
+            log.info(":::::: Bienvenido {} ::::::", user.getAttributes().get("given_name"));
+        }
+    }
+}
+````
+
+Finalmente, necesitamos modificar el `SecurityConfig` para inyectar el repositorio `IGoogleRepository` que necesita
+nuestra clase `UserRepositoryOAuth2UserHandler` para poder registrar al usuario:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+
+    private final IGoogleUserRepository googleUserRepository;
+
+    /* other code */
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        FederatedIdentityConfigure federatedIdentityConfigure = new FederatedIdentityConfigure()
+                .oauth2UserHandler(new UserRepositoryOAuth2UserHandler(this.googleUserRepository)); //<-- Inyectando el repositorio
+        /* more code ...*/
+        return http.build();
+    }
+    /* other code */
+}
+````
