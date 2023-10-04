@@ -1847,3 +1847,33 @@ public class SecurityConfig {
     /* other code */
 }
 ````
+
+## Registrando Usuario GoogleUser en Base de datos
+
+Al ejecutar la aplicación luego de haber realizado todas las configuraciones anteriores por primera vez, veremos que se
+crea la tabla `google_users` en la base de datos.
+
+Luego iniciamos el flujo de siempre, accedemos a la página `oauthdebugger.com/debug`, enviamos la solicitud para obtener
+un **authorization code** y en el formulario de login accedemos con nuestra cuenta de google.
+
+La primera vez que realicemos ese proceso, en consola nos mostrará los datos de nuestro usuario y el sql que usó
+hibernate para registrarlo en la base de datos.
+
+````
+2023-10-04T12:27:35.045-05:00  INFO 19980 --- [nio-9000-exec-8] .a.s.a.f.UserRepositoryOAuth2UserHandler : googleUser: GoogleUser(id=null, email=magadiflo@gmail.com, name=Martín Díaz Flores, givenName=Martín, familyName=Díaz Flores, pictureUrl=https://lh3.googleusercontent.com/a/ACg8ocIxiNzYSw4NxudSrsV0B8KOPkBZm2QKVTQaC-sNMNbYCl0=s96-c)
+Hibernate: 
+    insert 
+    into
+        google_users
+        (email,family_name,given_name,name,picture_url) 
+    values
+        (?,?,?,?,?)
+````
+
+Si volvemos a realizar el mismo proceso, previamente habiéndonos deslogueado ingresando a `http://localhost:9000/logout`
+veremos que ahora en consola nos mostrará el mensaje que colocamos en la clase `UserRepositoryOAuth2UserHandler`
+junto a name del usuario logueado:
+
+````
+2023-10-04T12:38:08.195-05:00  INFO 19980 --- [nio-9000-exec-2] .a.s.a.f.UserRepositoryOAuth2UserHandler : :::::: Bienvenido Martín ::::::
+````
