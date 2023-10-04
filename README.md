@@ -1320,3 +1320,221 @@ Fuente 2: [OAuth2/scopes](https://developers.google.com/identity/protocols/oauth
   consola de `google cloud` y no se mostrará a los usuarios finales.
 - `user-name-attribute`, el claim en `id_token` o en la respuesta de información del usuario que contiene el username
   del usuario.
+
+## Configuraciones avanzadas para federar proveedores de identidades
+
+La siguiente configuración `FederatedIdentityAuthenticationSuccessHandler` utiliza un componente personalizado para
+**capturar usuarios** en una **base de datos local** cuando inician sesión por primera vez:
+
+````java
+public final class FederatedIdentityAuthenticationSuccessHandler implements AuthenticationSuccessHandler {
+
+    private final AuthenticationSuccessHandler delegate = new SavedRequestAwareAuthenticationSuccessHandler();
+
+    private Consumer<OAuth2User> oauth2UserHandler = (user) -> {
+    };
+
+    private Consumer<OidcUser> oidcUserHandler = (user) -> this.oauth2UserHandler.accept(user);
+
+    @Override
+    public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication)
+            throws IOException, ServletException {
+        if (authentication instanceof OAuth2AuthenticationToken) {
+            if (authentication.getPrincipal() instanceof OidcUser) {
+                this.oidcUserHandler.accept((OidcUser) authentication.getPrincipal());
+            } else if (authentication.getPrincipal() instanceof OAuth2User) {
+                this.oauth2UserHandler.accept((OAuth2User) authentication.getPrincipal());
+            }
+        }
+        this.delegate.onAuthenticationSuccess(request, response, authentication);
+    }
+
+    public void setOAuth2UserHandler(Consumer<OAuth2User> oauth2UserHandler) {
+        this.oauth2UserHandler = oauth2UserHandler;
+    }
+
+    public void setOidcUserHandler(Consumer<OidcUser> oidcUserHandler) {
+        this.oidcUserHandler = oidcUserHandler;
+    }
+}
+````
+
+Con el `FederatedIdentityAuthenticationSuccessHandler` anterior, puede conectar su propio `Consumer<OAuth2User>` que
+puede capturar usuarios en una base de datos u otro almacén de datos para conceptos como vinculación de cuentas
+federadas o aprovisionamiento de cuentas JIT. A continuación se muestra la clase que simplemente almacena usuarios en
+la memoria:
+
+````java
+public final class UserRepositoryOAuth2UserHandler implements Consumer<OAuth2User> {
+
+    private final UserRepository userRepository = new UserRepository();
+
+    @Override
+    public void accept(OAuth2User user) {
+        // Capturar el usuario en un local data store en la primera autenticación
+        if (this.userRepository.findByName(user.getName()) == null) {
+            System.out.println("Guardando usuario por primera vez: name=" + user.getName() +
+                               ", claims=" + user.getAttributes() + ", authorities=" + user.getAuthorities());
+            this.userRepository.save(user);
+        }
+    }
+
+    static class UserRepository {
+        private final Map<String, OAuth2User> userCache = new ConcurrentHashMap<>();
+
+        public OAuth2User findByName(String name) {
+            return this.userCache.get(name);
+        }
+
+        public void save(OAuth2User oauth2User) {
+            this.userCache.put(oauth2User.getName(), oauth2User);
+        }
+    }
+}
+````
+
+A continuación se muestran dos clases que se crearon para personalizar la redirección al end-point de login de
+OAuth 2.0 cuando no esté autenticado desde el end-point de autorización:
+
+````java
+public final class FederatedIdentityAuthenticationEntryPoint implements AuthenticationEntryPoint {
+    private final RedirectStrategy redirectStrategy = new DefaultRedirectStrategy();
+
+    // DEFAULT_AUTHORIZATION_REQUEST_BASE_URI= "/oauth2/authorization"
+    private String authorizationRequestUri = OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI + "/{registrationId}";
+
+    private final AuthenticationEntryPoint delegate;
+
+    private final ClientRegistrationRepository clientRegistrationRepository;
+
+    public FederatedIdentityAuthenticationEntryPoint(String loginPageUrl, ClientRegistrationRepository clientRegistrationRepository) {
+        this.delegate = new LoginUrlAuthenticationEntryPoint(loginPageUrl);
+        this.clientRegistrationRepository = clientRegistrationRepository;
+    }
+
+    @Override
+    public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authenticationException)
+            throws IOException, ServletException {
+        String idp = request.getParameter("idp");//identity provider
+        if (idp != null) {
+            ClientRegistration clientRegistration = this.clientRegistrationRepository.findByRegistrationId(idp);
+            if (clientRegistration != null) {
+                String redirectUri = UriComponentsBuilder.fromHttpRequest(new ServletServerHttpRequest(request))
+                        .replaceQuery(null)
+                        .replacePath(this.authorizationRequestUri)
+                        .buildAndExpand(clientRegistration.getRegistrationId())
+                        .toUriString();
+                this.redirectStrategy.sendRedirect(request, response, redirectUri);
+                return;
+            }
+        }
+
+        this.delegate.commence(request, response, authenticationException);
+    }
+
+    public void setAuthorizationRequestUri(String authorizationRequestUri) {
+        this.authorizationRequestUri = authorizationRequestUri;
+    }
+}
+````
+
+````java
+public final class FederatedIdentityConfigure extends AbstractHttpConfigurer<FederatedIdentityConfigure, HttpSecurity> {
+
+    private String loginPageUrl = "/login";
+
+    private String authorizationRequestUri;
+
+    private Consumer<OAuth2User> oauth2UserHandler;
+
+    private Consumer<OidcUser> oidcUserHandler;
+
+    /**
+     * @param loginPageUrl The URL of the login page, defaults to {@code "/login"}
+     * @return This configurer for additional configuration
+     */
+    public FederatedIdentityConfigure loginPageUrl(String loginPageUrl) {
+        Assert.hasText(loginPageUrl, "loginPageUrl cannot be empty");
+        this.loginPageUrl = loginPageUrl;
+        return this;
+    }
+
+    /**
+     * @param authorizationRequestUri The authorization request URI for initiating
+     *                                the login flow with an external IDP, defaults to {@code
+     *                                "/oauth2/authorization/{registrationId}"}
+     * @return This configurer for additional configuration
+     */
+    public FederatedIdentityConfigure authorizationRequestUri(String authorizationRequestUri) {
+        Assert.hasText(authorizationRequestUri, "authorizationRequestUri cannot be empty");
+        this.authorizationRequestUri = authorizationRequestUri;
+        return this;
+    }
+
+    /**
+     * @param oauth2UserHandler The {@link 'Consumer'} for performing JIT account provisioning
+     *                          with an OAuth 2.0 IDP
+     * @return This configurer for additional configuration
+     */
+    public FederatedIdentityConfigure oauth2UserHandler(Consumer<OAuth2User> oauth2UserHandler) {
+        Assert.notNull(oauth2UserHandler, "oauth2UserHandler cannot be null");
+        this.oauth2UserHandler = oauth2UserHandler;
+        return this;
+    }
+
+    /**
+     * @param oidcUserHandler The {@link 'Consumer'} for performing JIT account provisioning
+     *                        with an OpenID Connect 1.0 IDP
+     * @return This configurer for additional configuration
+     */
+    public FederatedIdentityConfigure oidcUserHandler(Consumer<OidcUser> oidcUserHandler) {
+        Assert.notNull(oidcUserHandler, "oidcUserHandler cannot be null");
+        this.oidcUserHandler = oidcUserHandler;
+        return this;
+    }
+
+    // @formatter:off
+    @Override
+    public void init(HttpSecurity http) throws Exception {
+        ApplicationContext applicationContext = http.getSharedObject(ApplicationContext.class);
+        ClientRegistrationRepository clientRegistrationRepository =
+                applicationContext.getBean(ClientRegistrationRepository.class);
+        FederatedIdentityAuthenticationEntryPoint authenticationEntryPoint =
+                new FederatedIdentityAuthenticationEntryPoint(this.loginPageUrl, clientRegistrationRepository);
+        if (this.authorizationRequestUri != null) {
+            authenticationEntryPoint.setAuthorizationRequestUri(this.authorizationRequestUri);
+        }
+
+        FederatedIdentityAuthenticationSuccessHandler authenticationSuccessHandler =
+                new FederatedIdentityAuthenticationSuccessHandler();
+        if (this.oauth2UserHandler != null) {
+            authenticationSuccessHandler.setOAuth2UserHandler(this.oauth2UserHandler);
+        }
+        if (this.oidcUserHandler != null) {
+            authenticationSuccessHandler.setOidcUserHandler(this.oidcUserHandler);
+        }
+
+        http.exceptionHandling(exceptionHandling ->
+                        exceptionHandling.authenticationEntryPoint(authenticationEntryPoint)
+                )
+                .oauth2Login(oauth2Login -> {
+                    oauth2Login.successHandler(authenticationSuccessHandler);
+                    if (this.authorizationRequestUri != null) {
+                        String baseUri = this.authorizationRequestUri.replace("/{registrationId}", "");
+                        oauth2Login.authorizationEndpoint(authorizationEndpoint ->
+                                authorizationEndpoint.baseUri(baseUri)
+                        );
+                    }
+                });
+    }
+    // @formatter:on
+}
+````
+
+**NOTA**
+> Las clases `FederatedIdentityAuthenticationSuccessHandler` y `UserRepositoryOAuth2UserHandler` están tal cual en la
+> documentación oficial
+> [Capture Users in a Database](https://docs.spring.io/spring-authorization-server/docs/current/reference/html/guides/how-to-social-login.html#advanced-use-cases-capture-users),
+> mientras que las clases `FederatedIdentityAuthenticationEntryPoint` y `FederatedIdentityConfigure` fueron copiadas
+> tal cual del tutorial, que a su vez lo copió del repositorio de Spring que está en GitHub.
+
