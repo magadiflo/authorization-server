@@ -2,6 +2,7 @@ package com.magadiflo.authorization.server.app.config;
 
 import com.magadiflo.authorization.server.app.federated.FederatedIdentityConfigure;
 import com.magadiflo.authorization.server.app.federated.UserRepositoryOAuth2UserHandler;
+import com.magadiflo.authorization.server.app.repositories.IGoogleUserRepository;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
@@ -47,6 +48,8 @@ import java.util.stream.Collectors;
 @Configuration
 public class SecurityConfig {
 
+    private final IGoogleUserRepository googleUserRepository;
+
     @Bean
     @Order(1)
     public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
@@ -64,7 +67,7 @@ public class SecurityConfig {
     @Order(2)
     public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
         FederatedIdentityConfigure federatedIdentityConfigure = new FederatedIdentityConfigure()
-                .oauth2UserHandler(new UserRepositoryOAuth2UserHandler());
+                .oauth2UserHandler(new UserRepositoryOAuth2UserHandler(this.googleUserRepository));
 
         http.authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/v1/auth/**", "/api/v1/clients/**", "/login").permitAll()

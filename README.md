@@ -1734,3 +1734,146 @@ de redirección en la plataforma de google:
 
 ![32-social-login-google-4](./assets/32-social-login-google-4.png)
 
+---
+
+# CAPÍTULO 6: Usuario de Google en Base de Datos
+
+---
+
+En este capítulo, si un usuario se logea con su cuenta de **google**, el `Authorization Server` registrará sus datos en
+la base de datos.
+
+## Entidad GoogleUser
+
+Crearemos la entidad `GoogleUser` con el que mapearemos los datos de un usuario de google en nuestra base de datos.
+Además, crearemos un método estático para poder hacer una conversión, es decir, a partir de un `OAuth2User` (que es
+una representación de un `User Principal` que está registrado con un proveedor OAuth 2) lo convertiremos a la entidad
+`GoogleUser` para poder interactuar con la base de datos:
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Entity
+@Table(name = "google_users")
+public class GoogleUser {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String email;
+    private String name;
+    private String givenName;
+    private String familyName;
+    private String pictureUrl;
+
+    public static GoogleUser fromOauth2User(OAuth2User oAuth2User) {
+        return GoogleUser.builder()
+                .email(oAuth2User.getName())
+                .name(oAuth2User.getAttribute("name").toString())
+                .givenName(oAuth2User.getAttribute("given_name").toString())
+                .familyName(oAuth2User.getAttribute("family_name").toString())
+                .pictureUrl(oAuth2User.getAttribute("picture").toString())
+                .build();
+    }
+}
+````
+
+También debemos crearle su repositorio, donde le crearemos un método personalizado para poder obtener un `GoogleUser`
+a partir de su email:
+
+````java
+public interface IGoogleUserRepository extends JpaRepository<GoogleUser, Long> {
+    Optional<GoogleUser> findByEmail(String email);
+}
+````
+
+## Configuración para el registro de usuario GoogleUser
+
+Para poder registrar al usuario de google necesitamos hacer una modificación a la clase
+`UserRepositoryOAuth2UserHandler` en el que usaremos la interfaz `IGoogleUserRepository` que nos permitirá buscar al
+usuario y realizar su registro:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+public final class UserRepositoryOAuth2UserHandler implements Consumer<OAuth2User> {
+
+    private final IGoogleUserRepository googleUserRepository;
+
+    @Override
+    public void accept(OAuth2User user) {
+        // Capturar el usuario en una base de datos en la primera autenticación
+        if (this.googleUserRepository.findByEmail(user.getName()).isEmpty()) {
+            StringBuilder sb = new StringBuilder("Guardando usuario de Google por primera vez: ")
+                    .append("name: ").append(user.getName())
+                    .append(", claims: ").append(user.getAttributes())
+                    .append(", authorities: ").append(user.getAuthorities());
+            System.out.println(sb);
+            GoogleUser googleUser = GoogleUser.fromOauth2User(user);
+            log.info("googleUser: {}", googleUser);
+            this.googleUserRepository.save(googleUser);
+        } else {
+            log.info(":::::: Bienvenido {} ::::::", user.getAttributes().get("given_name"));
+        }
+    }
+}
+````
+
+Finalmente, necesitamos modificar el `SecurityConfig` para inyectar el repositorio `IGoogleRepository` que necesita
+nuestra clase `UserRepositoryOAuth2UserHandler` para poder registrar al usuario:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+
+    private final IGoogleUserRepository googleUserRepository;
+
+    /* other code */
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        FederatedIdentityConfigure federatedIdentityConfigure = new FederatedIdentityConfigure()
+                .oauth2UserHandler(new UserRepositoryOAuth2UserHandler(this.googleUserRepository)); //<-- Inyectando el repositorio
+        /* more code ...*/
+        return http.build();
+    }
+    /* other code */
+}
+````
+
+## Registrando Usuario GoogleUser en Base de datos
+
+Al ejecutar la aplicación luego de haber realizado todas las configuraciones anteriores por primera vez, veremos que se
+crea la tabla `google_users` en la base de datos.
+
+Luego iniciamos el flujo de siempre, accedemos a la página `oauthdebugger.com/debug`, enviamos la solicitud para obtener
+un **authorization code** y en el formulario de login accedemos con nuestra cuenta de google.
+
+La primera vez que realicemos ese proceso, en consola nos mostrará los datos de nuestro usuario y el sql que usó
+hibernate para registrarlo en la base de datos.
+
+````
+2023-10-04T12:27:35.045-05:00  INFO 19980 --- [nio-9000-exec-8] .a.s.a.f.UserRepositoryOAuth2UserHandler : googleUser: GoogleUser(id=null, email=magadiflo@gmail.com, name=Martín Díaz Flores, givenName=Martín, familyName=Díaz Flores, pictureUrl=https://lh3.googleusercontent.com/a/ACg8ocIxiNzYSw4NxudSrsV0B8KOPkBZm2QKVTQaC-sNMNbYCl0=s96-c)
+Hibernate: 
+    insert 
+    into
+        google_users
+        (email,family_name,given_name,name,picture_url) 
+    values
+        (?,?,?,?,?)
+````
+
+Si volvemos a realizar el mismo proceso, previamente habiéndonos deslogueado ingresando a `http://localhost:9000/logout`
+veremos que ahora en consola nos mostrará el mensaje que colocamos en la clase `UserRepositoryOAuth2UserHandler`
+junto a name del usuario logueado:
+
+````
+2023-10-04T12:38:08.195-05:00  INFO 19980 --- [nio-9000-exec-2] .a.s.a.f.UserRepositoryOAuth2UserHandler : :::::: Bienvenido Martín ::::::
+````
