@@ -1734,3 +1734,57 @@ de redirección en la plataforma de google:
 
 ![32-social-login-google-4](./assets/32-social-login-google-4.png)
 
+---
+
+# CAPÍTULO 6: Usuario de Google en Base de Datos
+
+---
+
+En este capítulo, si un usuario se logea con su cuenta de **google**, el `Authorization Server` registrará sus datos en
+la base de datos.
+
+## Entidad GoogleUser
+
+Crearemos la entidad `GoogleUser` con el que mapearemos los datos de un usuario de google en nuestra base de datos.
+Además, crearemos un método estático para poder hacer una conversión, es decir, a partir de un `OAuth2User` (que es
+una representación de un `User Principal` que está registrado con un proveedor OAuth 2) lo convertiremos a la entidad
+`GoogleUser` para poder interactuar con la base de datos:
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Entity
+@Table(name = "google_users")
+public class GoogleUser {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String email;
+    private String name;
+    private String givenName;
+    private String familyName;
+    private String pictureUrl;
+
+    public static GoogleUser fromOauth2User(OAuth2User oAuth2User) {
+        return GoogleUser.builder()
+                .email(oAuth2User.getName())
+                .name(oAuth2User.getAttribute("name").toString())
+                .givenName(oAuth2User.getAttribute("given_name").toString())
+                .familyName(oAuth2User.getAttribute("family_name").toString())
+                .pictureUrl(oAuth2User.getAttribute("picture").toString())
+                .build();
+    }
+}
+````
+
+También debemos crearle su repositorio, donde le crearemos un método personalizado para poder obtener un `GoogleUser`
+a partir de su email:
+
+````java
+public interface IGoogleUserRepository extends JpaRepository<GoogleUser, Long> {
+    Optional<GoogleUser> findByEmail(String email);
+}
+````
