@@ -1712,3 +1712,25 @@ public class LoginController {
     }
 }
 ````
+
+## Autenticacón con Social Login de Google
+
+Ingresamos a la página [oauthdebugger.com/debug](https://oauthdebugger.com/debug), completamos los datos como lo hemos
+venido trabajando desde el inicio y finalmente damos clic en **SEND REQEST**:
+
+![29-social-login-google-1](./assets/29-social-login-google-1.png)
+
+Veremos que ahora se nos muestra el formulario html que creamos junto al botón del `Social Login` de `Google`:
+
+![30-social-login-google-2](./assets/30-social-login-google-2.png)
+
+Como es la primera vez, nos pedirá que ingresemos nuestro correo de `google`, lo ingresamos y continuamos con el flujo
+de autenticación:
+
+![31-social-login-google-3](./assets/31-social-login-google-3.png)
+
+Al finalizar el flujo de autenticación, nos debe redireccionar a la página de **oauthdebugger** que colocamos como uri
+de redirección en la plataforma de google:
+
+![32-social-login-google-4](./assets/32-social-login-google-4.png)
+
