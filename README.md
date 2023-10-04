@@ -1609,3 +1609,106 @@ public class SecurityConfig {
     /* other code */
 }
 ````
+
+## Login Controller
+
+Crearemos un controlador en el que definiremos dos endpoints, por un lado, el `/login` que nos permitirá llamar al
+formulario html para iniciar sesión con las credenciales del usuario o usando el **Social Login**:
+
+````html
+<!DOCTYPE html>
+<html lang="en"
+      xmlns="http://www.w3.org/1999/xhtml" xmlns:th="https://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Tutorial</title>
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M" crossorigin="anonymous">
+    <link href="https://getbootstrap.com/docs/4.0/examples/signin/signin.css" rel="stylesheet" crossorigin="anonymous"/>
+</head>
+<body>
+<div class="container">
+    <form class="form-signin" method="post" th:action="@{/login}">
+        <div th:if="${param.error}" class="alert alert-danger" role="alert">
+            Credenciales erróneas
+        </div>
+        <div th:if="${param.logout}" class="alert alert-success" role="alert">
+            Has cerrado sesión.
+        </div>
+        <h2 class="form-signin-heading">Sign In</h2>
+        <p>
+            <label for="username" class="sr-only">Nombre de Usuario</label>
+            <input type="text" id="username" name="username" class="form-control" placeholder="Username" required
+                   autofocus>
+        </p>
+        <p>
+            <label for="password" class="sr-only">Contraseña</label>
+            <input type="password" id="password" name="password" class="form-control" placeholder="Password" required>
+        </p>
+        <button class="btn btn-lg btn-primary btn-block" type="submit">Iniciar Sesión</button>
+        <a class="btn btn-light btn-block bg-white" href="/oauth2/authorization/google-idp" role="link"
+           style="text-transform: none;">
+            <img width="20" style="margin-right: 5px;" alt="Sign in with Google"
+                 src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Google_%22G%22_Logo.svg/512px-Google_%22G%22_Logo.svg.png"/>
+            Sign in with Google
+        </a>
+    </form>
+</div>
+</body>
+</html>
+````
+
+Por otro lado, el `/logout` nos permitirá llamar a un formulario para poder cerrar sesión.
+
+````html
+<!DOCTYPE html>
+<html lang="en"
+      xmlns="http://www.w3.org/1999/xhtml" xmlns:th="https://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Tutorial</title>
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M" crossorigin="anonymous">
+    <link href="https://getbootstrap.com/docs/4.0/examples/signin/signin.css" rel="stylesheet" crossorigin="anonymous"/>
+</head>
+<body>
+<div class="container">
+    <h2 class="text-center">¿Seguro que quieres cerrar sesión?</h2>
+    <form class="form-signin" method="post" th:action="@{/logout}">
+        <button class="btn btn-lg btn-outline-primary btn-block" type="submit">SÍ</button>
+        <button class="btn btn-lg btn-outline-secondary btn-block" href="https://oauthdebugger.com/debug">NO</button>
+    </form>
+</div>
+</body>
+</html>
+````
+
+Finalmente, el controlador `LoginController` que usará los dos documentos html anteriores:
+
+````java
+
+@Controller
+public class LoginController {
+    @GetMapping(path = "/login")
+    public String login() {
+        return "login";
+    }
+
+    @GetMapping(path = "/logout")
+    public String logout() {
+        return "logout";
+    }
+
+    @PostMapping(path = "/logout")
+    public String logoutOK(HttpSecurity httpSecurity) throws Exception {
+        httpSecurity.logout(logout -> logout
+                .logoutSuccessUrl("login?logout")
+                .deleteCookies("JSESSIONID")
+                .invalidateHttpSession(true)
+                .clearAuthentication(true));
+        return "login?logout";
+    }
+}
+````
