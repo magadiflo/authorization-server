@@ -1109,7 +1109,7 @@ Hasta este punto no tenemos ningún cliente registrado, por lo que si nos intent
 Ahora, procedemos a registrar nuestro cliente `front-end-app`:
 
 ````bash
-curl -v -X POST -H "Content-Type: application/json" -d "{\"clientId\": \"front-end-app\", \"clientSecret\": \"secret-key\", \"clientAuthenticationMethods\": [\"client_secret_basic\"], \"authorizationGrantTypes\": [\"authorization_code\", \"refresh_token\", \"client_credentials\"], \"redirectUris\": [\"https://oauthdebugger.com/debug\"], \"scopes\": [\"openid\"], \"requireProofKey\": true}" http://localhost:9000/api/v1/clients | jq
+curl -v -X POST -H "Content-Type: application/json" -d "{\"clientId\": \"front-end-app\", \"clientSecret\": \"secret-key\", \"clientAuthenticationMethods\": [\"client_secret_basic\"], \"authorizationGrantTypes\": [\"authorization_code\", \"refresh_token\", \"client_credentials\"], \"redirectUris\": [\"https://oauthdebugger.com/debug\"], \"scopes\": [\"openid\", \"profile\"], \"requireProofKey\": true}" http://localhost:9000/api/v1/clients | jq
 
 >
 < HTTP/1.1 201
@@ -1154,3 +1154,583 @@ Finalmente, hasta este punto, las tablas relacionadas con el `Authorization Serv
 de datos:
 
 ![18.authorization-server-db](./assets/18.authorization-server-db.png)
+
+---
+
+# CAPÍTULO 5: Social Login - Google
+
+- No coloco **CAPÍTULO 4** porque siguiendo el listado del tutorial el capítulo 4 trató sobre la implementación del
+  [**Resource Server**](https://github.com/magadiflo/resource-server.git).
+- **Referencia Oficial:**
+  [Cómo: Autenticación mediante Social Login](https://docs.spring.io/spring-authorization-server/docs/current/reference/html/guides/how-to-social-login.html)
+
+---
+
+## Registro con el proveedor de inicio de sesión social
+
+Utilizaremos `Google` para que los usuarios puedan iniciar sesión. En ese sentido, el servidor de `Google` se convertirá
+en nuestro `Authorization Server` para esta nueva funcionalidad de social login, mientras que nuestra aplicación de
+`Spring Boot 3 authorization-server` se convertirá en un `cliente` del `Servidor de Autorización de Google`, por lo
+tanto, necesitamos generar las credenciales para nuestra aplicación cliente (authorization-server), de esa manera
+estaremos registrándolo en el servidor de Google.
+
+> Con nuestra **cuenta de google iniciada**, accedemos a [console.cloud.google](https://console.cloud.google.com)
+
+Como yo ya había trabajado anteriormente con **Google Cloud** es que aparece por defecto seleccionado el último proyecto
+en el que trabajé. Entonces, **para poder crear un nuevo proyecto**, debemos hacer click en el `Select` y se nos abrirá
+el
+modal. Luego, en el paso **3** agrego un nombre al proyecto y damos en crear:
+
+![19-cliente-google-1](./assets/19-cliente-google-1.png)
+
+Ahora que tenemos creado el proyecto lo seleccionamos y vamos a la opción de **API APIs y servicios**:
+
+![20-cliente-google-2](./assets/20-cliente-google-2.png)
+
+Seguimos las siguientes opciones:
+
+![21-cliente-google-3](./assets/21-cliente-google-3.png)
+
+Seleccionamos la opción de **Externos** y damos en crear:
+
+![22-cliente-google-4](./assets/22-cliente-google-4.png)
+
+En la siguiente pantalla damos un nombre a la aplicación, colocamos nuestro correo de gmail 2 veces y damos en
+**Guardar y Continuar**:
+
+![23-cliente-google-5](./assets/23-cliente-google-5.png)
+
+En la siguiente pantalla simplemente damos en **Guardar y Continuar** que nos llevará a la página para poder agregar
+usuarios de prueba. Aquí es donde me agregaré a mí mismo como un usuario de prueba, luego damos **Guardar y Continuar**:
+
+![24-cliente-google-6](./assets/24-cliente-google-6.png)
+
+Luego de la pantalla anterior daremos click en el botón **VOLVER AL PANEL**. Ya en el panel, daremos clic en
+Credenciales y **CREAR CREDENCIALES**:
+
+![25-cliente-google-7](./assets/25-cliente-google-7.png)
+
+**Esta parte es muy importante**, ya que aquí seleccionamos que el tipo de aplicación que vamos a registrar, en nuestro
+caso será una **Aplicación Web** y además le tenemos que **dar un nombre a nuestra aplicación cliente**. Otro punto
+importante es que en la parte inferior agregamos explícitamente las url de redireccionamiento que están autorizados
+para nuestra aplicación cliente.
+
+Según la **documentación oficial** que referencié al inicio de este capítulo, menciona que cuando lleguemos a este
+punto del registro donde nos soliciten especificar un **URI de redirección**, debemos definir un `registrationId`
+(como google, my-client o cualquier otro identificador único que desee) que utilizaremos para configurar tanto
+Spring Security como su proveedor. En mi caso, elegí como un `registrationId` a `google-idp`. Si observamos la imagen
+inferior, veremos que he encerrado en un círculo naranja ese identificador.
+
+El `registrationId` **es un identificador único para el ClientRegistration en Spring Security**. La plantilla
+Redirect URI predeterminada es `{baseUrl}/login/oauth2/code/{registrationId}`. Consulte
+[Configuración del URI de redirección](https://docs.spring.io/spring-security/reference/servlet/oauth2/login/core.html#oauth2login-sample-redirect-uri)
+en la referencia de Spring Security para obtener más información.
+
+![26-cliente-google-8](./assets/26-cliente-google-8.png)
+
+**NOTA**
+> Las demás uris de redireccionamiento las coloqué siguiendo el video del tutorial, aunque según la documentación
+> oficial, nos muestra como único uri de redireccionamiento el que configuramos con nuestro registrationId
+> **google-idp**: `http://localhost:9000/login/oauth2/code/google-idp`
+
+Finalmente, como último paso, Google nos mostrará las credenciales que deberá tener nuestra aplicación cliente:
+
+![27-cliente-google-9](./assets/27-cliente-google-9.png)
+
+## Usando .env en IntelliJ IDEA
+
+Las credenciales que nos generó google no la debemos subir al repositorio por lo que optaremos por crear un archivo
+`.env` en la raíz de nuestro proyecto donde definiremos las variables de entorno que contendrán nuestras credenciales:
+
+````dotenv
+GOOGLE_CLIENT_ID=580379...
+GOOGLE_CLIENT_SECRET=GOCS...
+````
+
+Como estamos trabajando con **IntelliJ IDEA** necesitamos de alguna forma leer el archivo `.env` cada vez que ejecutemos
+la aplicación, para eso debemos instalar el plugin [EnvFile](https://plugins.jetbrains.com/plugin/7861-envfile) y
+a continuación agregar el archivo `.env` en la configuración de ejecución:
+
+![28-env-intellij-idea](./assets/28-env-intellij-idea.png)
+
+## Añadir dependencia de cliente OAuth2
+
+En este capítulo, como estamos viendo el tema del **Social Login**, el **servidor de autorización** que creamos en los
+capítulos iniciales con Spring Boot 3, las dependencias de OAuth2 Authorization Server, etc., ahora se convertirá
+en un **Cliente** de **Google** y es **Google** quien ahora, será nuestro **Servidor de Autorización**; esa fue
+la razón por la que en la sección anterior creamos los credenciales que usará esta aplicación cliente.
+
+Entonces, como necesitamos que esta aplicación **authorization-server** sea un cliente OAuth2 de Google, agregaremos
+la dependencia `spring-boot-starter-oauth2-client`; además, crearemos nuestro propio formulario html de login y logout,
+por lo que necesitamos agregar la dependencia de `thymeleaf`:
+
+````xml
+
+<dependencies>
+    <!--Other dependencies-->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-oauth2-client</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-thymeleaf</artifactId>
+    </dependency>
+    <!--Other dependencies-->
+</dependencies>
+````
+
+## Registrar un cliente
+
+A continuación, configure el `ClientRegistration` con los valores obtenidos anteriormente. Usando Google, configure las
+siguientes propiedades:
+
+````yml
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          google-idp:
+            provider: google
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: openid, https://www.googleapis.com/auth/userinfo.profile, https://www.googleapis.com/auth/userinfo.email
+            client-name: authorization-server-spring-boot-as-a-client
+        provider:
+          google:
+            user-name-attribute: email
+````
+
+**DONDE**<br>
+Fuente 1: [OpenId-Connect](https://developers.google.com/identity/openid-connect/openid-connect?hl=es-419#appsetup)<br>
+Fuente 2: [OAuth2/scopes](https://developers.google.com/identity/protocols/oauth2/scopes?hl=es-419)
+
+- El `registrationId` en el ejemplo anterior es `google-idp`, mismo que usamos en el uri de redireccionamiento de
+  google.
+- `provider`, es `google` como nuestro proveedor de inicio de sesión social.
+- `client-id`, la string del ID de cliente que obtienes de `Credentials page` de API Console.
+- `scope`, debe comenzar con el valor `openid` y, luego, incluir el valor `profile`, el valor `email` o ambos.
+    - **openid**, asocie su cuenta con su información personal en Google.
+    - **https://www.googleapis.com/auth/userinfo.profile**, permite ver su información personal, incluidos los datos
+      personales que haya hecho públicos.
+    - **https://www.googleapis.com/auth/userinfo.email**, consultar la dirección de correo electrónico principal de su
+      Cuenta de Google.
+- `client-name`, el nombre de tu cliente de OAuth 2.0. Este nombre solo se usa para identificar al cliente en la
+  consola de `google cloud` y no se mostrará a los usuarios finales.
+- `user-name-attribute`, el claim en `id_token` o en la respuesta de información del usuario que contiene el username
+  del usuario.
+
+## Configuraciones avanzadas para federar proveedores de identidades
+
+La siguiente configuración `FederatedIdentityAuthenticationSuccessHandler` utiliza un componente personalizado para
+**capturar usuarios** en una **base de datos local** cuando inician sesión por primera vez:
+
+````java
+public final class FederatedIdentityAuthenticationSuccessHandler implements AuthenticationSuccessHandler {
+
+    private final AuthenticationSuccessHandler delegate = new SavedRequestAwareAuthenticationSuccessHandler();
+
+    private Consumer<OAuth2User> oauth2UserHandler = (user) -> {
+    };
+
+    private Consumer<OidcUser> oidcUserHandler = (user) -> this.oauth2UserHandler.accept(user);
+
+    @Override
+    public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication)
+            throws IOException, ServletException {
+        if (authentication instanceof OAuth2AuthenticationToken) {
+            if (authentication.getPrincipal() instanceof OidcUser) {
+                this.oidcUserHandler.accept((OidcUser) authentication.getPrincipal());
+            } else if (authentication.getPrincipal() instanceof OAuth2User) {
+                this.oauth2UserHandler.accept((OAuth2User) authentication.getPrincipal());
+            }
+        }
+        this.delegate.onAuthenticationSuccess(request, response, authentication);
+    }
+
+    public void setOAuth2UserHandler(Consumer<OAuth2User> oauth2UserHandler) {
+        this.oauth2UserHandler = oauth2UserHandler;
+    }
+
+    public void setOidcUserHandler(Consumer<OidcUser> oidcUserHandler) {
+        this.oidcUserHandler = oidcUserHandler;
+    }
+}
+````
+
+Con el `FederatedIdentityAuthenticationSuccessHandler` anterior, puede conectar su propio `Consumer<OAuth2User>` que
+puede capturar usuarios en una base de datos u otro almacén de datos para conceptos como vinculación de cuentas
+federadas o aprovisionamiento de cuentas JIT. A continuación se muestra la clase que simplemente almacena usuarios en
+la memoria:
+
+````java
+public final class UserRepositoryOAuth2UserHandler implements Consumer<OAuth2User> {
+
+    private final UserRepository userRepository = new UserRepository();
+
+    @Override
+    public void accept(OAuth2User user) {
+        // Capturar el usuario en un local data store en la primera autenticación
+        if (this.userRepository.findByName(user.getName()) == null) {
+            System.out.println("Guardando usuario por primera vez: name=" + user.getName() +
+                               ", claims=" + user.getAttributes() + ", authorities=" + user.getAuthorities());
+            this.userRepository.save(user);
+        }
+    }
+
+    static class UserRepository {
+        private final Map<String, OAuth2User> userCache = new ConcurrentHashMap<>();
+
+        public OAuth2User findByName(String name) {
+            return this.userCache.get(name);
+        }
+
+        public void save(OAuth2User oauth2User) {
+            this.userCache.put(oauth2User.getName(), oauth2User);
+        }
+    }
+}
+````
+
+A continuación se muestran dos clases que se crearon para personalizar la redirección al end-point de login de
+OAuth 2.0 cuando no esté autenticado desde el end-point de autorización:
+
+````java
+public final class FederatedIdentityAuthenticationEntryPoint implements AuthenticationEntryPoint {
+    private final RedirectStrategy redirectStrategy = new DefaultRedirectStrategy();
+
+    // DEFAULT_AUTHORIZATION_REQUEST_BASE_URI= "/oauth2/authorization"
+    private String authorizationRequestUri = OAuth2AuthorizationRequestRedirectFilter.DEFAULT_AUTHORIZATION_REQUEST_BASE_URI + "/{registrationId}";
+
+    private final AuthenticationEntryPoint delegate;
+
+    private final ClientRegistrationRepository clientRegistrationRepository;
+
+    public FederatedIdentityAuthenticationEntryPoint(String loginPageUrl, ClientRegistrationRepository clientRegistrationRepository) {
+        this.delegate = new LoginUrlAuthenticationEntryPoint(loginPageUrl);
+        this.clientRegistrationRepository = clientRegistrationRepository;
+    }
+
+    @Override
+    public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authenticationException)
+            throws IOException, ServletException {
+        String idp = request.getParameter("idp");//identity provider
+        if (idp != null) {
+            ClientRegistration clientRegistration = this.clientRegistrationRepository.findByRegistrationId(idp);
+            if (clientRegistration != null) {
+                String redirectUri = UriComponentsBuilder.fromHttpRequest(new ServletServerHttpRequest(request))
+                        .replaceQuery(null)
+                        .replacePath(this.authorizationRequestUri)
+                        .buildAndExpand(clientRegistration.getRegistrationId())
+                        .toUriString();
+                this.redirectStrategy.sendRedirect(request, response, redirectUri);
+                return;
+            }
+        }
+
+        this.delegate.commence(request, response, authenticationException);
+    }
+
+    public void setAuthorizationRequestUri(String authorizationRequestUri) {
+        this.authorizationRequestUri = authorizationRequestUri;
+    }
+}
+````
+
+````java
+public final class FederatedIdentityConfigure extends AbstractHttpConfigurer<FederatedIdentityConfigure, HttpSecurity> {
+
+    private String loginPageUrl = "/login";
+
+    private String authorizationRequestUri;
+
+    private Consumer<OAuth2User> oauth2UserHandler;
+
+    private Consumer<OidcUser> oidcUserHandler;
+
+    /**
+     * @param loginPageUrl The URL of the login page, defaults to {@code "/login"}
+     * @return This configurer for additional configuration
+     */
+    public FederatedIdentityConfigure loginPageUrl(String loginPageUrl) {
+        Assert.hasText(loginPageUrl, "loginPageUrl cannot be empty");
+        this.loginPageUrl = loginPageUrl;
+        return this;
+    }
+
+    /**
+     * @param authorizationRequestUri The authorization request URI for initiating
+     *                                the login flow with an external IDP, defaults to {@code
+     *                                "/oauth2/authorization/{registrationId}"}
+     * @return This configurer for additional configuration
+     */
+    public FederatedIdentityConfigure authorizationRequestUri(String authorizationRequestUri) {
+        Assert.hasText(authorizationRequestUri, "authorizationRequestUri cannot be empty");
+        this.authorizationRequestUri = authorizationRequestUri;
+        return this;
+    }
+
+    /**
+     * @param oauth2UserHandler The {@link 'Consumer'} for performing JIT account provisioning
+     *                          with an OAuth 2.0 IDP
+     * @return This configurer for additional configuration
+     */
+    public FederatedIdentityConfigure oauth2UserHandler(Consumer<OAuth2User> oauth2UserHandler) {
+        Assert.notNull(oauth2UserHandler, "oauth2UserHandler cannot be null");
+        this.oauth2UserHandler = oauth2UserHandler;
+        return this;
+    }
+
+    /**
+     * @param oidcUserHandler The {@link 'Consumer'} for performing JIT account provisioning
+     *                        with an OpenID Connect 1.0 IDP
+     * @return This configurer for additional configuration
+     */
+    public FederatedIdentityConfigure oidcUserHandler(Consumer<OidcUser> oidcUserHandler) {
+        Assert.notNull(oidcUserHandler, "oidcUserHandler cannot be null");
+        this.oidcUserHandler = oidcUserHandler;
+        return this;
+    }
+
+    // @formatter:off
+    @Override
+    public void init(HttpSecurity http) throws Exception {
+        ApplicationContext applicationContext = http.getSharedObject(ApplicationContext.class);
+        ClientRegistrationRepository clientRegistrationRepository =
+                applicationContext.getBean(ClientRegistrationRepository.class);
+        FederatedIdentityAuthenticationEntryPoint authenticationEntryPoint =
+                new FederatedIdentityAuthenticationEntryPoint(this.loginPageUrl, clientRegistrationRepository);
+        if (this.authorizationRequestUri != null) {
+            authenticationEntryPoint.setAuthorizationRequestUri(this.authorizationRequestUri);
+        }
+
+        FederatedIdentityAuthenticationSuccessHandler authenticationSuccessHandler =
+                new FederatedIdentityAuthenticationSuccessHandler();
+        if (this.oauth2UserHandler != null) {
+            authenticationSuccessHandler.setOAuth2UserHandler(this.oauth2UserHandler);
+        }
+        if (this.oidcUserHandler != null) {
+            authenticationSuccessHandler.setOidcUserHandler(this.oidcUserHandler);
+        }
+
+        http.exceptionHandling(exceptionHandling ->
+                        exceptionHandling.authenticationEntryPoint(authenticationEntryPoint)
+                )
+                .oauth2Login(oauth2Login -> {
+                    oauth2Login.successHandler(authenticationSuccessHandler);
+                    if (this.authorizationRequestUri != null) {
+                        String baseUri = this.authorizationRequestUri.replace("/{registrationId}", "");
+                        oauth2Login.authorizationEndpoint(authorizationEndpoint ->
+                                authorizationEndpoint.baseUri(baseUri)
+                        );
+                    }
+                });
+    }
+    // @formatter:on
+}
+````
+
+**NOTA**
+> Las clases `FederatedIdentityAuthenticationSuccessHandler` y `UserRepositoryOAuth2UserHandler` están tal cual en la
+> documentación oficial
+> [Capture Users in a Database](https://docs.spring.io/spring-authorization-server/docs/current/reference/html/guides/how-to-social-login.html#advanced-use-cases-capture-users),
+> mientras que las clases `FederatedIdentityAuthenticationEntryPoint` y `FederatedIdentityConfigure` fueron copiadas
+> tal cual del tutorial, que a su vez lo copió del repositorio de Spring que está en GitHub.
+
+## Configurar autenticación
+
+Finalmente, para configurar `Spring Authorization Server` para usar un `proveedor de inicio de sesión social` para la
+autenticación, puede usar **oauth2Login()** en lugar de **formLogin()**, **aunque en mi caso usamos los dos**. También
+puede redirigir automáticamente a un usuario no autenticado al proveedor configurando **excepciónHandling()** con un
+**AuthenticationEntryPoint**.
+
+A continuación solo se muestran los cambios que realizaron en el `SecurityConfig`:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    @Order(1)
+    public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+        OAuth2AuthorizationServerConfiguration.applyDefaultSecurity(http);
+        http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
+                .oidc(Customizer.withDefaults()); // Enable OpenID Connect 1.0
+
+        // Aceptar access_tokens para Información de Usuario y/o Registro de Cliente
+        http.oauth2ResourceServer(resourceServer -> resourceServer.jwt(Customizer.withDefaults()));
+        http.apply(new FederatedIdentityConfigure());
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        FederatedIdentityConfigure federatedIdentityConfigure = new FederatedIdentityConfigure()
+                .oauth2UserHandler(new UserRepositoryOAuth2UserHandler());
+
+        http.authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers("/api/v1/auth/**", "/api/v1/clients/**", "/login").permitAll()
+                        .anyRequest().authenticated()
+                )
+                .formLogin(Customizer.withDefaults())
+                .apply(federatedIdentityConfigure);
+        http.csrf(csrfConfigurer -> csrfConfigurer.ignoringRequestMatchers("/api/v1/auth/**", "/api/v1/clients/**", "/login"));
+        return http.build();
+    }
+
+    /* other code */
+
+    @Bean
+    public SessionRegistry sessionRegistry() {
+        return new SessionRegistryImpl();
+    }
+
+    @Bean
+    public HttpSessionEventPublisher httpSessionEventPublisher() {
+        return new HttpSessionEventPublisher();
+    }
+
+    @Bean
+    public OAuth2AuthorizationService authorizationService() {
+        return new InMemoryOAuth2AuthorizationService();
+    }
+
+    @Bean
+    public OAuth2AuthorizationConsentService authorizationConsentService() {
+        return new InMemoryOAuth2AuthorizationConsentService();
+    }
+
+    /* other code */
+}
+````
+
+## Login Controller
+
+Crearemos un controlador en el que definiremos dos endpoints, por un lado, el `/login` que nos permitirá llamar al
+formulario html para iniciar sesión con las credenciales del usuario o usando el **Social Login**:
+
+````html
+<!DOCTYPE html>
+<html lang="en"
+      xmlns="http://www.w3.org/1999/xhtml" xmlns:th="https://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Tutorial</title>
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M" crossorigin="anonymous">
+    <link href="https://getbootstrap.com/docs/4.0/examples/signin/signin.css" rel="stylesheet" crossorigin="anonymous"/>
+</head>
+<body>
+<div class="container">
+    <form class="form-signin" method="post" th:action="@{/login}">
+        <div th:if="${param.error}" class="alert alert-danger" role="alert">
+            Credenciales erróneas
+        </div>
+        <div th:if="${param.logout}" class="alert alert-success" role="alert">
+            Has cerrado sesión.
+        </div>
+        <h2 class="form-signin-heading">Sign In</h2>
+        <p>
+            <label for="username" class="sr-only">Nombre de Usuario</label>
+            <input type="text" id="username" name="username" class="form-control" placeholder="Username" required
+                   autofocus>
+        </p>
+        <p>
+            <label for="password" class="sr-only">Contraseña</label>
+            <input type="password" id="password" name="password" class="form-control" placeholder="Password" required>
+        </p>
+        <button class="btn btn-lg btn-primary btn-block" type="submit">Iniciar Sesión</button>
+        <a class="btn btn-light btn-block bg-white" href="/oauth2/authorization/google-idp" role="link"
+           style="text-transform: none;">
+            <img width="20" style="margin-right: 5px;" alt="Sign in with Google"
+                 src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Google_%22G%22_Logo.svg/512px-Google_%22G%22_Logo.svg.png"/>
+            Sign in with Google
+        </a>
+    </form>
+</div>
+</body>
+</html>
+````
+
+Por otro lado, el `/logout` nos permitirá llamar a un formulario para poder cerrar sesión.
+
+````html
+<!DOCTYPE html>
+<html lang="en"
+      xmlns="http://www.w3.org/1999/xhtml" xmlns:th="https://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Tutorial</title>
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css" rel="stylesheet"
+          integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M" crossorigin="anonymous">
+    <link href="https://getbootstrap.com/docs/4.0/examples/signin/signin.css" rel="stylesheet" crossorigin="anonymous"/>
+</head>
+<body>
+<div class="container">
+    <h2 class="text-center">¿Seguro que quieres cerrar sesión?</h2>
+    <form class="form-signin" method="post" th:action="@{/logout}">
+        <button class="btn btn-lg btn-outline-primary btn-block" type="submit">SÍ</button>
+        <button class="btn btn-lg btn-outline-secondary btn-block" href="https://oauthdebugger.com/debug">NO</button>
+    </form>
+</div>
+</body>
+</html>
+````
+
+Finalmente, el controlador `LoginController` que usará los dos documentos html anteriores:
+
+````java
+
+@Controller
+public class LoginController {
+    @GetMapping(path = "/login")
+    public String login() {
+        return "login";
+    }
+
+    @GetMapping(path = "/logout")
+    public String logout() {
+        return "logout";
+    }
+
+    @PostMapping(path = "/logout")
+    public String logoutOK(HttpSecurity httpSecurity) throws Exception {
+        httpSecurity.logout(logout -> logout
+                .logoutSuccessUrl("login?logout")
+                .deleteCookies("JSESSIONID")
+                .invalidateHttpSession(true)
+                .clearAuthentication(true));
+        return "login?logout";
+    }
+}
+````
+
+## Autenticacón con Social Login de Google
+
+Ingresamos a la página [oauthdebugger.com/debug](https://oauthdebugger.com/debug), completamos los datos como lo hemos
+venido trabajando desde el inicio y finalmente damos clic en **SEND REQEST**:
+
+![29-social-login-google-1](./assets/29-social-login-google-1.png)
+
+Veremos que ahora se nos muestra el formulario html que creamos junto al botón del `Social Login` de `Google`:
+
+![30-social-login-google-2](./assets/30-social-login-google-2.png)
+
+Como es la primera vez, nos pedirá que ingresemos nuestro correo de `google`, lo ingresamos y continuamos con el flujo
+de autenticación:
+
+![31-social-login-google-3](./assets/31-social-login-google-3.png)
+
+Al finalizar el flujo de autenticación, nos debe redireccionar a la página de **oauthdebugger** que colocamos como uri
+de redirección en la plataforma de google:
+
+![32-social-login-google-4](./assets/32-social-login-google-4.png)
+
