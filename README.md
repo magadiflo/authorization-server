@@ -1159,7 +1159,7 @@ de datos:
 
 # CAPÍTULO 5: Social Login - Google
 
-- No coloco **CAPÍTULO 4** porque siguiendo el listado del tutorial el capítulo 4 trató sobre la implementación del
+- No coloco **CAPÍTULO 4**, porque siguiendo el listado del tutorial, el capítulo 4 trató sobre la implementación del
   [**Resource Server**](https://github.com/magadiflo/resource-server.git).
 - **Referencia Oficial:**
   [Cómo: Autenticación mediante Social Login](https://docs.spring.io/spring-authorization-server/docs/current/reference/html/guides/how-to-social-login.html)
@@ -1210,10 +1210,12 @@ Credenciales y **CREAR CREDENCIALES**:
 
 ![25-cliente-google-7](./assets/25-cliente-google-7.png)
 
-**Esta parte es muy importante**, ya que aquí seleccionamos que el tipo de aplicación que vamos a registrar, en nuestro
+**Esta parte es muy importante**, ya que aquí seleccionamos el tipo de aplicación que vamos a registrar, en nuestro
 caso será una **Aplicación Web** y además le tenemos que **dar un nombre a nuestra aplicación cliente**. Otro punto
-importante es que en la parte inferior agregamos explícitamente las url de redireccionamiento que están autorizados
+importante es que en la parte inferior agregamos explícitamente la uri de redireccionamiento que autorizamos
 para nuestra aplicación cliente.
+
+**¿De dónde sale esa URI de redireccionamiento?**
 
 Según la **documentación oficial** que referencié al inicio de este capítulo, menciona que cuando lleguemos a este
 punto del registro donde nos soliciten especificar un **URI de redirección**, debemos definir un `registrationId`
@@ -1221,17 +1223,32 @@ punto del registro donde nos soliciten especificar un **URI de redirección**, d
 Spring Security como su proveedor. En mi caso, elegí como un `registrationId` a `google-idp`. Si observamos la imagen
 inferior, veremos que he encerrado en un círculo naranja ese identificador.
 
-El `registrationId` **es un identificador único para el ClientRegistration en Spring Security**. La plantilla
-Redirect URI predeterminada es `{baseUrl}/login/oauth2/code/{registrationId}`. Consulte
+El `registrationId` **es un identificador único para el ClientRegistration en Spring Security**. La plantilla de
+**Redirect URI** `predeterminada` es:
+
+```
+{baseUrl}/login/oauth2/code/{registrationId}
+``` 
+
+Consulte
 [Configuración del URI de redirección](https://docs.spring.io/spring-security/reference/servlet/oauth2/login/core.html#oauth2login-sample-redirect-uri)
 en la referencia de Spring Security para obtener más información.
+
+**TIP**
+> Por ejemplo, al realizar una prueba local en el puerto 9000 con un ID de registro `google-idp`, su URI de
+> redireccionamiento sería `http://localhost:9000/login/oauth2/code/google-idp`. **Ingrese este valor como URI de
+> redireccionamiento cuando configure la aplicación con su proveedor**.
+
+Entonces, tomando como referencia el **TIP** de la documentación oficial, es que configuraremos nuestro
+**URI de redireccionamiento**:
 
 ![26-cliente-google-8](./assets/26-cliente-google-8.png)
 
 **NOTA**
-> Las demás uris de redireccionamiento las coloqué siguiendo el video del tutorial, aunque según la documentación
-> oficial, nos muestra como único uri de redireccionamiento el que configuramos con nuestro registrationId
-> **google-idp**: `http://localhost:9000/login/oauth2/code/google-idp`
+> En el tutorial que estoy siguiendo, el tutor agrega más uris de redireccionamiento, pero no explica el porqué,
+> mientras que en la documentación oficial solo habla de esa `plantilla predeterminada como uri de redireccionamiento`,
+> por eso opté únicamente por registrar dicha uri en google. Al final cuando veamos la ejecución de la aplicación
+> veremos que todo corre sin problemas.
 
 Finalmente, como último paso, Google nos mostrará las credenciales que deberá tener nuestra aplicación cliente:
 
@@ -1255,8 +1272,8 @@ a continuación agregar el archivo `.env` en la configuración de ejecución:
 
 ## Añadir dependencia de cliente OAuth2
 
-En este capítulo, como estamos viendo el tema del **Social Login**, el **servidor de autorización** que creamos en los
-capítulos iniciales con Spring Boot 3, las dependencias de OAuth2 Authorization Server, etc., ahora se convertirá
+En este capítulo, como estamos viendo el tema del **Social Login**, el **servidor de autorización** (que creamos en los
+capítulos iniciales con Spring Boot 3, las dependencias de OAuth2 Authorization Server, etc.) ahora se convertirá
 en un **Cliente** de **Google** y es **Google** quien ahora, será nuestro **Servidor de Autorización**; esa fue
 la razón por la que en la sección anterior creamos los credenciales que usará esta aplicación cliente.
 
@@ -1282,8 +1299,8 @@ por lo que necesitamos agregar la dependencia de `thymeleaf`:
 
 ## Registrar un cliente
 
-A continuación, configure el `ClientRegistration` con los valores obtenidos anteriormente. Usando Google, configure las
-siguientes propiedades:
+A continuación, configure el `ClientRegistration` con los valores obtenidos anteriormente. Como estamos usando Google
+como proveedor de **Social Login**, las propiedades de configuración que usaremos serán las siguientes:
 
 ````yml
 spring:
@@ -1310,7 +1327,9 @@ Fuente 2: [OAuth2/scopes](https://developers.google.com/identity/protocols/oauth
   google.
 - `provider`, es `google` como nuestro proveedor de inicio de sesión social.
 - `client-id`, la string del ID de cliente que obtienes de `Credentials page` de API Console.
-- `scope`, debe comenzar con el valor `openid` y, luego, incluir el valor `profile`, el valor `email` o ambos.
+- `scope`, debe comenzar con el valor `openid` y, luego, incluir el valor `profile`, el valor `email` o ambos. Ahora, si
+  revisamos los permisos de OAuth 2.0 para las APIS de Google, veremos que en su
+  [documentación oficial](https://developers.google.com/identity/protocols/oauth2/scopes?hl=es-419#oauth2) muestra:
     - **openid**, asocie su cuenta con su información personal en Google.
     - **https://www.googleapis.com/auth/userinfo.profile**, permite ver su información personal, incluidos los datos
       personales que haya hecho públicos.
@@ -1729,8 +1748,10 @@ de autenticación:
 
 ![31-social-login-google-3](./assets/31-social-login-google-3.png)
 
-Al finalizar el flujo de autenticación, nos debe redireccionar a la página de **oauthdebugger** que colocamos como uri
-de redirección en la plataforma de google:
+Al finalizar el flujo de autenticación, nos debe redireccionar a la página de **oauthdebugger/debug** que colocamos como
+uri de redirección en la página de `oauthdebugger.com/debug` desde donde hicimos el `SEND REQUEST` y que al mismo tiempo
+debe coincidir con el **uri de redirección** que tenemos registrado en la base de datos. **¿Para qué cliente?** para el
+cliente que configuré en la misma página desde donde hice el `SEND REQUEST`, es decir para el cliente **front-end-app**.
 
 ![32-social-login-google-4](./assets/32-social-login-google-4.png)
 
