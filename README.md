@@ -1898,3 +1898,281 @@ junto a name del usuario logueado:
 ````
 2023-10-04T12:38:08.195-05:00  INFO 19980 --- [nio-9000-exec-2] .a.s.a.f.UserRepositoryOAuth2UserHandler : :::::: Bienvenido Martín ::::::
 ````
+
+---
+
+# CAPÍTULO 7: Recibiendo Código de Autorización en Cliente Angular
+
+- Este capítulo 7 en realidad le corresponde a lo desarrollado en el repositorio
+  [oauth2-client-angular](https://github.com/magadiflo/oauth2-client-angular.git), mientras que aquí solamente haremos
+  uso de lo desarrollado en ese capítulo para mostrar el paso a paso del flujo de tipo de concesión de **Código de
+  Autorización**, al menos el `primer paso` del flujo que es hasta recibir el **Código de Autorización** emitido por el
+  **Servidor de Autorización**.
+- Para ver cuál es el flujo completo del tipo de concesión de código de autorización ver la siguiente
+  información [Implementación del tipo de concesión de código de autorización (Authorization Code Grant Type)](https://github.com/magadiflo/spring-security-in-action-2020/blob/main/12.how_does_oauth-2_work.md#p%C3%A1g-289-implementaci%C3%B3n-del-tipo-de-concesi%C3%B3n-de-c%C3%B3digo-de-autorizaci%C3%B3n-authorization-code-grant-type)
+- Para ver un ejemplo detallado del flujo de código de autorización usando **GitHub** como servidor de autorización ver
+  la siguiente información
+  [Implementación de una aplicación simple de inicio de sesión único](https://github.com/magadiflo/spring-security-in-action-2020/blob/main/12.how_does_oauth-2_work.md#p%C3%A1g-299-implementaci%C3%B3n-de-una-aplicaci%C3%B3n-simple-de-inicio-de-sesi%C3%B3n-%C3%BAnico)
+
+---
+
+Como bien sabemos, el **primer paso** del tipo de concesión de **Código de Autorización** es obtener un `código` que
+posteriormente, en un siguiente paso, el cliente lo usará para obtener un **access token**, pero en este capítulo
+únicamente nos centramos en la obtención del `authorization code`:
+
+## Obtener código de autorización con cliente registrado en el Authorization Server
+
+1. Desde nuestra aplicación cliente de Angular damos clic en el botón de `login`:
+
+![33-primer_paso-codigo-1](./assets/33-primer_paso-codigo-1.png)
+
+2. Sabemos que el botón login nos redireccionará al enlace del `servidor de autorización` **para iniciar el flujo de
+   autenticación**, precisamente es lo que vemos en la imagen siguiente, en el log de la consola del navegador se
+   muestra que fuimos redireccionamos al enlace:
+
+````
+http://localhost:9000/oauth2/authorize?client_id=front-end-app&redirect_uri=http://localhost:4200/authorized&scope=openid%20profile&response_type=code&response_mode=form_post&code_challenge_method=S256&code_challenge=b2MtJ9pAteYoCGd8aSAolE-CxGbG4MEINELrtkLUQXs
+````
+
+Luego, nuestro servidor de autorización nos redireccionó a su login `http://localhost:9000/login`:
+
+![34-primer_paso-codigo-2](./assets/34-primer_paso-codigo-2.png)
+
+En este punto nos **toca analizar el log del servidor de autorización** para ver lo que sucedió.
+
+Observamos que el servidor de autorización captura el request que nos llevó a él
+`/oauth2/authorize?client_id=front-end...`, posteriormente busca al cliente que le enviamos en el request a través
+de su `client_id=front-end-app`. Como el cliente está registrado en la base de datos, continúa obteniendo todos los
+demás detalles como sus **scopes, redirect_uris, authentication_methods y authorization_grant_types**. Luego de terminar
+de hacer la búsqueda, el log nos muestra el mensaje `Retrieved registered client`. En seguida, el servidor de
+autorización guarda el request que se le hizo al inicio. Finalmente, el servidor nos redirecciona a su login y es lo
+vemos en el navegador:
+
+````
+...
+DEBUG 21228 --- o.s.security.web.FilterChainProxy        : Securing GET /oauth2/authorize?client_id=front-end-app&redirect_uri=http://localhost:4200/authorized&scope=openid%20profile&response_type=code&response_mode=form_post&code_challenge_method=S256&code_challenge=b2MtJ9pAteYoCGd8aSAolE-CxGbG4MEINELrtkLUQXs
+...
+Hibernate: 
+    select
+        c1_0.id,
+        c1_0.client_id,
+        c1_0.client_secret,
+        c1_0.require_proof_key 
+    from
+        clients c1_0 
+    where
+        c1_0.client_id=?
+Hibernate: 
+    select
+        s1_0.client_id,
+        s1_0.scopes 
+    ....
+...
+TRACE 21228 --- izationCodeRequestAuthenticationProvider : Retrieved registered client
+...
+DEBUG 21228 --- o.s.s.w.s.HttpSessionRequestCache        : Saved request http://localhost:9000/oauth2/authorize?client_id=front-end-app&redirect_uri=http://localhost:4200/authorized&scope=openid%20profile&response_type=code&response_mode=form_post&code_challenge_method=S256&code_challenge=b2MtJ9pAteYoCGd8aSAolE-CxGbG4MEINELrtkLUQXs&continue to session
+DEBUG 21228 --- o.s.s.web.DefaultRedirectStrategy        : Redirecting to http://localhost:9000/login
+````
+
+3. Como tercer paso es ingresar las credenciales de algún usuario que tengamos registrado en nuestro Authorization
+   Server. Utilizaremos el usuario `admin` y su pass `12345`:
+
+![35-primer_paso-codigo-3](./assets/35-primer_paso-codigo-3.png)
+
+4. Luego de dar clic en **Iniciar Sesión** el servidor de autorización valida nuestras credenciales de usuario y nos
+   retorna el tan esperado `Authorization Code`.
+
+Para que nos retorne el código de autorización, vemos que al haber hecho clic en el botón de **Iniciar Sesión**, se
+realizó una solicitud **POST** al endpoint de login del servidor de autorización. Luego de haber validado las
+credenciales como exitosas, el servidor de autorización continúa con la solicitud inicial donde le solicitábamos un
+**código de autorización**. Finalmente, usando el `redirect_uri` que le definimos, nos retorna el código de
+autorización:
+
+````
+http://localhost:4200/authorized?code=ArdRHKcStFyyJmdm40BBeuQ_XfoFytAZgV4O8MiIxNOeo_aF-nUDpKtUT96xXbD0j-FQPOS-88Ni1Ogb161SKlqFzpAA8_5_4cbMP8j4g7-xQ4PJLfYo9ABmgm-qIsbC
+````
+
+![36-primer_paso-codigo-4](./assets/36-primer_paso-codigo-4.png)
+
+Ahora volvemos a analizar lo que sucedió en el servidor de autorización:
+
+````
+...
+DEBUG 20948 --- o.s.security.web.FilterChainProxy        : Securing POST /login
+...
+TRACE 20948 --- o.s.s.authentication.ProviderManager     : Authenticating request with DaoAuthenticationProvider
+Hibernate: 
+    select
+        u1_0.id,
+        u1_0.credentials_expired,
+        u1_0.disabled,
+        u1_0.expired,
+        u1_0.locked,
+        u1_0.password,
+        u1_0.username 
+    from
+        users u1_0 
+    where
+        u1_0.username=?
+Hibernate: 
+    select
+        r1_0.user_id,
+...
+DEBUG 20948 --- o.s.s.a.dao.DaoAuthenticationProvider    : Authenticated user
+...
+DEBUG 20948 --- w.a.UsernamePasswordAuthenticationFilter : Set SecurityContextHolder to UsernamePasswordAuthenticationToken [Principal=User(id=3, username=admin, password=$2a$10$UVi0WNjSFboLC8Me7PQuzOM94RCwBy/jty2R2vKEP.zyA1VFE50Q6, roles=[Role(id=2, role=ROLE_USER), Role(id=1, role=ROLE_ADMIN)], expired=false, locked=false, credentialsExpired=false, disabled=false), Credentials=[PROTECTED], Authenticated=true, Details=WebAuthenticationDetails [RemoteIpAddress=0:0:0:0:0:0:0:1, SessionId=D554E32A3F2566F04AC9F72FCF7BC1BA], Granted Authorities=[Role(id=2, role=ROLE_USER), Role(id=1, role=ROLE_ADMIN)]]
+DEBUG 20948 --- o.s.s.web.DefaultRedirectStrategy        : Redirecting to http://localhost:9000/oauth2/authorize?client_id=front-end-app&redirect_uri=http://localhost:4200/authorized&scope=openid%20profile&response_type=code&response_mode=form_post&code_challenge_method=S256&code_challenge=b2MtJ9pAteYoCGd8aSAolE-CxGbG4MEINELrtkLUQXs&continue
+...
+TRACE 20948 --- o.s.s.authentication.ProviderManager     : Authenticating request with OAuth2AuthorizationCodeRequestAuthenticationProvider (1/20)
+Hibernate: 
+    select
+        c1_0.id,
+        c1_0.client_id,
+        c1_0.client_secret,
+        c1_0.require_proof_key 
+    from
+        clients c1_0 
+    where
+        c1_0.client_id=?
+Hibernate: 
+    select
+        s1_0.client_id,
+...
+TRACE 20948 --- izationCodeRequestAuthenticationProvider : Retrieved registered client
+...
+TRACE 20948 --- izationCodeRequestAuthenticationProvider : Generated authorization code
+TRACE 20948 --- izationCodeRequestAuthenticationProvider : Saved authorization
+TRACE 20948 --- izationCodeRequestAuthenticationProvider : Authenticated authorization code request
+...
+DEBUG 20948 --- o.s.s.web.DefaultRedirectStrategy        : Redirecting to http://localhost:4200/authorized?code=ArdRHKcStFyyJmdm40BBeuQ_XfoFytAZgV4O8MiIxNOeo_aF-nUDpKtUT96xXbD0j-FQPOS-88Ni1Ogb161SKlqFzpAA8_5_4cbMP8j4g7-xQ4PJLfYo9ABmgm-qIsbC
+````
+
+Como observamos el log anterior, traté de extraer las partes más importante para ver el paso a paso de lo ocurrido,
+donde inicia desde el `[POST] /login` realizado desde el navegador hasta el último log donde nos muestra la redirección
+hacia nuestro cliente de Angular con el código de autorización generado.
+
+## Obtener código de autorización usando Social Login con Google
+
+El punto **1, 2 y 3** del apartado anterior serán similares a lo que haremos en este apartado, así que partiremos justo
+desde el **punto 3**, cuando el usuario debe hacer login, pero en esta ocasión seleccionaremos el botón de google:
+
+![37-primer_paso-codigo-3.1](./assets/37-primer_paso-codigo-3.1.png)
+
+4. Luego de dar clic en el botón **Sign in with Google** se envía un request a nuestro mismo servidor de
+   autorización `http://localhost:9000/oauth2/authorization/google-idp`, que es la **URI base predeterminada** utilizada
+   para las solicitudes de autorización. Es decir, en este punto, nuestro servidor de autorización se convierte en un
+   **Cliente** que va a solicitar al servidor de autorización **(GOOGLE)** un `authorization code`, para eso se utilizan
+   los datos de nuestro authorization server como cliente que están definidos en el `application.yml` y se le adjuntan a
+   la url de google:
+
+````
+https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=58037903464-2jt9f77hiqsei79ncf1125vmin70ijb8.apps.googleusercontent.com&scope=openid%20https://www.googleapis.com/auth/userinfo.profile%20https://www.googleapis.com/auth/userinfo.email&state=KRsFg-3KTxVUrFl1CZSJwKaiIJBnbkl7oexWQeFjuc8%3D&redirect_uri=http://localhost:9000/login/oauth2/code/google-idp&nonce=nVzZsU6qLYPRYMKYXikrWmYpszdMXSs7EcqSuvY0i9Q
+
+DONDE:
+- URL para solicitar código de autorización: https://accounts.google.com/o/oauth2/v2/auth
+- response_type: code
+- client_id: 58037903464-2jt9f77hiqsei79ncf1125vmin70ijb8.apps.googleusercontent.com
+- scope: openid https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email
+- state: KRsFg-3KTxVUrFl1CZSJwKaiIJBnbkl7oexWQeFjuc8=
+- redirect_uri: http://localhost:9000/login/oauth2/code/google-idp
+- nonce: nVzZsU6qLYPRYMKYXikrWmYpszdMXSs7EcqSuvY0i9Q
+````
+
+Observar que la url anterior corresponde a la url que están en color azúl en la imagen. Algo importante que también
+debemos observar es que el `redirect_uri` que le definimos debe coincidir con el **URI de redireccionamiento
+autorizado** que configuramos en la plataforma de google para este cliente.
+
+Luego, el servidor de autorización de Google recibe nuestra solicitud de código de autorización, pero como aún no hemos
+iniciado sesión, nos lanza su formulario de login. Esa url del login corresponde al que está en color rojo:
+
+![38-primer_paso-codigo-4.1](./assets/38-primer_paso-codigo-4.1.png)
+
+Ahora, nos toca analizar la parte del **Servidor de autorización como cliente**, veamos su log:
+
+````
+...
+DEBUG 10708 --- o.s.security.web.FilterChainProxy        : Securing GET /oauth2/authorization/google-idp
+...
+DEBUG 10708 --- o.s.s.web.DefaultRedirectStrategy        : Redirecting to https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=58037903464-2jt9f77hiqsei79ncf1125vmin70ijb8.apps.googleusercontent.com&scope=openid%20https://www.googleapis.com/auth/userinfo.profile%20https://www.googleapis.com/auth/userinfo.email&state=KRsFg-3KTxVUrFl1CZSJwKaiIJBnbkl7oexWQeFjuc8%3D&redirect_uri=http://localhost:9000/login/oauth2/code/google-idp&nonce=nVzZsU6qLYPRYMKYXikrWmYpszdMXSs7EcqSuvY0i9Q
+...
+````
+
+Observamos entonces, que nuestro **servidor de autorización como cliente** está solicitando a la url correspondiente el
+**código de autorización**. Google, como respuesta nos redirecciona a su formulario de login. No vemos eso en consola
+de nuestro servidor de autorización como cliente, porque mostrar el formulario de login le compete al servidor de
+google.
+
+5. Luego de haber iniciado sesión exitosamente usando el formulario de google somos redireccionados a nuestra aplicación
+   cliente de Angular recibiendo el `authorization code` solicitado al nuestro servidor de autorización desarrollado en
+   Spring Boot 3 (no el de Google, el código de autorización de google lo recibió el Servidor de Autorización como
+   cliente en el otro flujo). Pero analicemos paso a paso lo que ocurrió:<br><br>
+
+   **1 -** Corresponde a la url de google donde se verifica el consentimiento y la identidad del cliente.<br>
+   **2 -** Corresponde a la url de redireccionamiento que configuramos en la plataforma de google para nuestra
+   aplicación cliente y a donde nos enviará google el código de autorización solicitado por el cliente (servidor de
+   autorización de spring boot 3).<br>
+   **3 -** Corresponde a la url de solicitud de código de autorización que iniciamos desde la aplicación cliente de
+   Angular y que se mantuvo guardado en el servidor de autorización mientras este se comunicaba y hacía todo el flujo
+   con el servidor de autorización de Google. Luego de habernos autenticado exitosamente con google, es que el servidor
+   de autorización de spring boot, procede con la solicitud de código de autorización inicial.<br>
+   **4 -** Finalmente, nuestro servidor de autorización de spring boot procede a reenviarnos el código de autorización
+   que solicitó nuestra aplicación cliente de Angular.
+
+![39-primer_paso-codigo-5](./assets/39-primer_paso-codigo-5.png)
+
+Ahora, veamos lo que sucedió en el backend analizando el log:
+
+````
+...
+DEBUG 10708 --- o.s.security.web.FilterChainProxy        : Securing GET /login/oauth2/code/google-idp?state=OjYrHxNmpJY1NE9k1siaH308zS6LH0aDfuGlfji6N1s%3D&code=4%2F0AfJohXkU5xjo3woVVK-noEZNKwTG0jkeKTAkfNcjG8rcfCm--KxJymVG2iYH0siY45OFSA&scope=email+profile+openid+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&authuser=0&prompt=consent
+...
+Hibernate: 
+    select
+        g1_0.id,
+        g1_0.email,
+        g1_0.family_name,
+        g1_0.given_name,
+        g1_0.name,
+        g1_0.picture_url 
+    from
+        google_users g1_0 
+    where
+        g1_0.email=?
+INFO 10708 --- .a.s.a.f.UserRepositoryOAuth2UserHandler : :::::: Bienvenido Martín ::::::
+
+-----------------------------------------------------------------------------
+**** Continúa con el flujo inicial de solicitud del cliente de Angular ****
+-----------------------------------------------------------------------------
+
+DEBUG 10708 --- o.s.s.web.DefaultRedirectStrategy        : Redirecting to http://localhost:9000/oauth2/authorize?client_id=front-end-app&redirect_uri=http://localhost:4200/authorized&scope=openid%20profile&response_type=code&response_mode=form_post&code_challenge_method=S256&code_challenge=b2MtJ9pAteYoCGd8aSAolE-CxGbG4MEINELrtkLUQXs&continue
+...
+Hibernate: 
+    select
+        c1_0.id,
+        c1_0.client_id,
+        c1_0.client_secret,
+        c1_0.require_proof_key 
+    from
+        clients c1_0 
+    where
+        c1_0.client_id=?
+...
+TRACE 10708 --- izationCodeRequestAuthenticationProvider : Retrieved registered client
+TRACE 10708 --- izationCodeRequestAuthenticationProvider : Validated authorization code request parameters
+TRACE 10708 --- izationCodeRequestAuthenticationProvider : Generated authorization code
+...
+DEBUG 10708 --- o.s.s.web.DefaultRedirectStrategy        : Redirecting to http://localhost:4200/authorized?code=zsjgryptgA5bDFQborxf7rmXhoai3bd0hwIg0jrLDE8k4z6d6Wnye-DDk5SNUytdTi6GxSgan4BHqHBbTH_f1-A9YPJqNZq5k87eRFBWCSYEJhhPWfo_ZqeCDduETGFT
+````
+
+En el log observamos que google nos retorna en el `redirect_uri` configurado en la plataforma de google, el código de
+autorización solicitado por nuestro servidor de autorización de spring boot. Posteriormente, verificamos los datos del
+usuario que inició sesión y como ya lo tenemos registrado en nuestra base de datos es que nos muestra el
+mensaje `Bienvenido Martín`. Ahora, en este punto hay que aclarar que nuestro servidor de autorización, que hasta este
+momento sigue siendo un cliente de google, por debajo, luego de haber recibido el código de autorización solicitó un
+access token y luego la información de la persona que inició sesión, aunque no se muestra ese proceso en consola,
+debemos estar seguros que así se realizó.
+
+Luego de mostrar el mensaje de bienvenida en consola yo coloqué el otro mensaje donde, efectivamente, nuestro servidor
+de autorización de spring boot, vuelve a ser un `Servidor de Autorización` y continúa con el flujo que el
+`cliente de Angular` había solicitado al inicio, un `código de autorización` y eso es lo que finalmente recibe nuestra
+aplicación cliente.
