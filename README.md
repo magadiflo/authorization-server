@@ -2176,3 +2176,73 @@ Luego de mostrar el mensaje de bienvenida en consola yo coloqué el otro mensaje
 de autorización de spring boot, vuelve a ser un `Servidor de Autorización` y continúa con el flujo que el
 `cliente de Angular` había solicitado al inicio, un `código de autorización` y eso es lo que finalmente recibe nuestra
 aplicación cliente.
+
+---
+
+# CAPÍTULO 8: Obteniendo Access Token en Cliente Angular
+
+Este capítulo 8 corresponde a la implementación en el cliente Angular, pero aquí se realizan ciertas modificaciones al
+backend para que el cliente de Angular funcione correctamente.
+
+---
+
+## Configurando CORS
+
+Para más información consultar el proyecto
+[spring-security-jwt-template-project](https://github.com/magadiflo/spring-security-jwt-template-project#configurando-cors).
+
+Creamos una clase de configuración llamada `ApplicationConfig` que contendrá `@Beans` de configuración, como por
+ejemplo, las configuraciones de CORS:
+
+````java
+
+@Configuration
+public class ApplicationConfig {
+    @Bean
+    public CorsFilter corsFilter() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowCredentials(true);
+        configuration.setAllowedOrigins(Collections.singletonList("http://localhost:4200"));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(Arrays.asList("Origin", "Content-Type", "Accept", "Authorization",
+                "Access-Control-Allow-Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers",
+                "X-Requested-With"));
+        configuration.setExposedHeaders(Arrays.asList("Origin", "Content-Type", "Accept", "Authorization",
+                "Access-Control-Allow-Origin", "Access-Control-Allow-Credentials"));
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+
+        return new CorsFilter(source);
+    }
+}
+````
+
+Como último paso de la configuración de CORS, debemos habilitarlo en cada uno de los métodos `SecurityFilterChain`:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+
+    private final IGoogleUserRepository googleUserRepository;
+
+    @Bean
+    @Order(1)
+    public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.cors(Customizer.withDefaults());
+        /* other code */
+    }
+
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.cors(Customizer.withDefaults());
+        /* other code */
+    }
+    /* other code */
+}
+````
