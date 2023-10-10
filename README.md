@@ -2246,3 +2246,62 @@ public class SecurityConfig {
     /* other code */
 }
 ````
+
+---
+
+# CAPÍTULO 11: Implementación del logout
+
+Este capítulo 11 corresponde a la implementación en el cliente Angular, pero aquí se realizan ciertas modificaciones al
+backend para que el cliente de Angular funcione correctamente.
+
+---
+
+El endpoint `/logout` del `LoginController` realizamos una modificación, simplemente quitamos el método
+`.logoutSuccessUrl("login?logout")` pues lo definiremos en las configuraciones. Nuestro endpoint `/logout` quedaría así:
+
+````java
+
+@Controller
+public class LoginController {
+    /* other endpoints */
+
+    @PostMapping(path = "/logout")
+    public String logoutOK(HttpSecurity httpSecurity) throws Exception {
+        httpSecurity.logout(logout -> logout
+                .deleteCookies("JSESSIONID")
+                .invalidateHttpSession(true)
+                .clearAuthentication(true));
+        return "login?logout";
+    }
+}
+````
+
+Ahora toca configurar el `SecurityConfig` agregando un url de redireccionamiento cuando el deslogueo en el servidor
+ocurre exitosamente:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+    /* other code */
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        /* other code*/
+        http.logout(logoutConfigurer -> logoutConfigurer.logoutSuccessUrl("http://localhost:4200/logout"));
+        /* other code */
+        return http.build();
+    }
+    /* other code */
+}
+````
+
+Por último, en el `html` del logout agregamos al botón `NO` un redireccionamiento hacia la raíz de nuestra aplicación
+cliente:
+
+````html
+<a th:href="@{http://localhost:4200}" class="btn btn-lg btn-outline-secondary btn-block">NO</a>
+````
