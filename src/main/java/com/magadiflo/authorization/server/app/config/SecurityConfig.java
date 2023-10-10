@@ -53,6 +53,7 @@ public class SecurityConfig {
     @Bean
     @Order(1)
     public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.cors(Customizer.withDefaults());
         OAuth2AuthorizationServerConfiguration.applyDefaultSecurity(http);
         http.getConfigurer(OAuth2AuthorizationServerConfigurer.class)
                 .oidc(Customizer.withDefaults()); // Enable OpenID Connect 1.0
@@ -66,6 +67,7 @@ public class SecurityConfig {
     @Bean
     @Order(2)
     public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.cors(Customizer.withDefaults());
         FederatedIdentityConfigure federatedIdentityConfigure = new FederatedIdentityConfigure()
                 .oauth2UserHandler(new UserRepositoryOAuth2UserHandler(this.googleUserRepository));
 
@@ -75,6 +77,7 @@ public class SecurityConfig {
                 )
                 .formLogin(Customizer.withDefaults())
                 .apply(federatedIdentityConfigure);
+        http.logout(logoutConfigurer -> logoutConfigurer.logoutSuccessUrl("http://localhost:4200/logout"));
         http.csrf(csrfConfigurer -> csrfConfigurer.ignoringRequestMatchers("/api/v1/auth/**", "/api/v1/clients/**", "/login"));
         return http.build();
     }

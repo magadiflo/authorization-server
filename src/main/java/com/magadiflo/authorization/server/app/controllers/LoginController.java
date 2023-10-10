@@ -20,7 +20,6 @@ public class LoginController {
     @PostMapping(path = "/logout")
     public String logoutOK(HttpSecurity httpSecurity) throws Exception {
         httpSecurity.logout(logout -> logout
-                .logoutSuccessUrl("login?logout")
                 .deleteCookies("JSESSIONID")
                 .invalidateHttpSession(true)
                 .clearAuthentication(true));

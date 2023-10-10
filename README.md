@@ -2176,3 +2176,132 @@ Luego de mostrar el mensaje de bienvenida en consola yo coloqué el otro mensaje
 de autorización de spring boot, vuelve a ser un `Servidor de Autorización` y continúa con el flujo que el
 `cliente de Angular` había solicitado al inicio, un `código de autorización` y eso es lo que finalmente recibe nuestra
 aplicación cliente.
+
+---
+
+# CAPÍTULO 8: Obteniendo Access Token en Cliente Angular
+
+Este capítulo 8 corresponde a la implementación en el cliente Angular, pero aquí se realizan ciertas modificaciones al
+backend para que el cliente de Angular funcione correctamente.
+
+---
+
+## Configurando CORS
+
+Para más información consultar el proyecto
+[spring-security-jwt-template-project](https://github.com/magadiflo/spring-security-jwt-template-project#configurando-cors).
+
+Creamos una clase de configuración llamada `ApplicationConfig` que contendrá `@Beans` de configuración, como por
+ejemplo, las configuraciones de CORS:
+
+````java
+
+@Configuration
+public class ApplicationConfig {
+    @Bean
+    public CorsFilter corsFilter() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowCredentials(true);
+        configuration.setAllowedOrigins(Collections.singletonList("http://localhost:4200"));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(Arrays.asList("Origin", "Content-Type", "Accept", "Authorization",
+                "Access-Control-Allow-Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers",
+                "X-Requested-With"));
+        configuration.setExposedHeaders(Arrays.asList("Origin", "Content-Type", "Accept", "Authorization",
+                "Access-Control-Allow-Origin", "Access-Control-Allow-Credentials"));
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+
+        return new CorsFilter(source);
+    }
+}
+````
+
+Como último paso de la configuración de CORS, debemos habilitarlo en cada uno de los métodos `SecurityFilterChain`:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+
+    private final IGoogleUserRepository googleUserRepository;
+
+    @Bean
+    @Order(1)
+    public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.cors(Customizer.withDefaults());
+        /* other code */
+    }
+
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        http.cors(Customizer.withDefaults());
+        /* other code */
+    }
+    /* other code */
+}
+````
+
+---
+
+# CAPÍTULO 11: Implementación del logout
+
+Este capítulo 11 corresponde a la implementación en el cliente Angular, pero aquí se realizan ciertas modificaciones al
+backend para que el cliente de Angular funcione correctamente.
+
+---
+
+El endpoint `/logout` del `LoginController` realizamos una modificación, simplemente quitamos el método
+`.logoutSuccessUrl("login?logout")` pues lo definiremos en las configuraciones. Nuestro endpoint `/logout` quedaría así:
+
+````java
+
+@Controller
+public class LoginController {
+    /* other endpoints */
+
+    @PostMapping(path = "/logout")
+    public String logoutOK(HttpSecurity httpSecurity) throws Exception {
+        httpSecurity.logout(logout -> logout
+                .deleteCookies("JSESSIONID")
+                .invalidateHttpSession(true)
+                .clearAuthentication(true));
+        return "login?logout";
+    }
+}
+````
+
+Ahora toca configurar el `SecurityConfig` agregando un url de redireccionamiento cuando el deslogueo en el servidor
+ocurre exitosamente:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+    /* other code */
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        /* other code*/
+        http.logout(logoutConfigurer -> logoutConfigurer.logoutSuccessUrl("http://localhost:4200/logout"));
+        /* other code */
+        return http.build();
+    }
+    /* other code */
+}
+````
+
+Por último, en el `html` del logout agregamos al botón `NO` un redireccionamiento hacia la raíz de nuestra aplicación
+cliente:
+
+````html
+<a th:href="@{http://localhost:4200}" class="btn btn-lg btn-outline-secondary btn-block">NO</a>
+````
