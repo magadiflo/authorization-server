@@ -77,6 +77,7 @@ public class SecurityConfig {
                 )
                 .formLogin(Customizer.withDefaults())
                 .apply(federatedIdentityConfigure);
+        http.logout(logoutConfigurer -> logoutConfigurer.logoutSuccessUrl("http://localhost:4200/logout"));
         http.csrf(csrfConfigurer -> csrfConfigurer.ignoringRequestMatchers("/api/v1/auth/**", "/api/v1/clients/**", "/login"));
         return http.build();
     }
