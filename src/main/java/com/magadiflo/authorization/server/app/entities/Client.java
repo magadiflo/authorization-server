@@ -44,7 +44,10 @@ public class Client {
                 .authorizationGrantTypes(authorizationGT -> authorizationGT.addAll(client.getAuthorizationGrantTypes()))
                 .redirectUris(redirectUris -> redirectUris.addAll(client.getRedirectUris()))
                 .scopes(scopes -> scopes.addAll(client.getScopes()))
-                .clientSettings(ClientSettings.builder().requireProofKey(client.isRequireProofKey()).build())
+                .clientSettings(ClientSettings.builder()
+                        .requireProofKey(client.isRequireProofKey())
+                        .requireAuthorizationConsent(true)
+                        .build())
                 .build();
     }
 }

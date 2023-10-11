@@ -2305,3 +2305,220 @@ cliente:
 ````html
 <a th:href="@{http://localhost:4200}" class="btn btn-lg btn-outline-secondary btn-block">NO</a>
 ````
+
+---
+
+# CAPÍTULO 14: Pantalla de consentimiento
+
+---
+
+## Habilitando pantalla de consentimiento
+
+Para poder ver la pantalla de consentimiento necesitamos modificar el `RegisteredClient` que es el usuario con el que
+se trabaja dentro de la arquitectura de OAuth 2. Esta modificación se realizará en la entity `Client`, ya que allí
+definimos el método que nos retornará un `RegisteredClient`:
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Entity
+@Table(name = "clients")
+public class Client {
+    /* properties */
+
+    public static RegisteredClient toRegisteredClient(Client client) {
+        return RegisteredClient.withId(client.getClientId())
+                /* other configurations */
+                .clientSettings(ClientSettings.builder()
+                        .requireProofKey(client.isRequireProofKey())
+                        .requireAuthorizationConsent(true)
+                        .build())
+                .build();
+    }
+}
+````
+
+Listo, levantamos el Servidor de Autorización, Servidor de Recurso y nuestro Cliente Angular, tratamos de iniciar sesión
+(en mi caso usaré google) y a continuación seremos redireccionados a la siguiente pantalla:
+
+![40-pantalla-de-consentimiento](./assets/40-pantalla-de-consentimiento.png)
+
+En la pantalla anterior damos `check` en `profile` y luego en el botón `submit`. Si a continuación cerramos sesión y
+volvemos a loguearnos, el servidor de autorización `ya no nos mostrará dicha pantalla de consentimiento`, ya que nuestra
+elección fue almacenado en memoria del servidor de autorización, para ser más precisos en el siguiente `@Bean`:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+    /* other code */
+    @Bean
+    public OAuth2AuthorizationConsentService authorizationConsentService() {
+        return new InMemoryOAuth2AuthorizationConsentService();
+    }
+}
+````
+
+Ahora, si reiniciamos el servidor de autorización y nos logueamos nuevamente con el mismo usuario, **nos volverá a
+mostrar la pantalla de consentimiento**, ya que nuestra elección anterior se elimina una vez que se reinicie el servidor
+de autorización, ¿por qué? `Porque está almacenando en memoria`.
+
+## Persistiendo consentimiento en Base de Datos
+
+Para persistir la selección del usuario en relación al consentimiento otorgado a la aplicación, crearemos un entidad, su
+repositorio y su respectivo servicio guiándonos de la plantilla proporcionada en la documentación de Spring.
+
+### [Authorization Consent Entity](https://docs.spring.io/spring-authorization-server/docs/current/reference/html/guides/how-to-jpa.html#authorization-consent-entity)
+
+El siguiente listado muestra la entidad `AuthorizationConsent`, que se utiliza para persistir la información mapeada
+desde el objeto de dominio OAuth2AuthorizationConsent.
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+@Entity
+@Table(name = "authorization_consents")
+@IdClass(AuthorizationConsent.AuthorizationConsentId.class)
+public class AuthorizationConsent {
+    @Id
+    private String registeredClientId;
+    @Id
+    private String principalName;
+    @Column(length = 1000)
+    private String authorities;
+
+    public static class AuthorizationConsentId implements Serializable {
+        private String registeredClientId;
+        private String principalName;
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            AuthorizationConsentId that = (AuthorizationConsentId) o;
+            return registeredClientId.equals(that.registeredClientId) && principalName.equals(that.principalName);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(registeredClientId, principalName);
+        }
+    }
+}
+````
+
+### [Authorization Consent Repository](https://docs.spring.io/spring-authorization-server/docs/current/reference/html/guides/how-to-jpa.html#authorization-consent-repository)
+
+El siguiente listado muestra el `IAuthorizationConsentRepository`, que es capaz de encontrar y eliminar un
+AuthorizationConsent por los campos `registeredClientId` y `principalName` que `forman una clave primaria compuesta`.
+
+````java
+public interface IAuthorizationConsentRepository extends JpaRepository<AuthorizationConsent, AuthorizationConsent.AuthorizationConsentId> {
+    Optional<AuthorizationConsent> findByRegisteredClientIdAndPrincipalName(String registeredClientId, String principalName);
+
+    void deleteByRegisteredClientIdAndPrincipalName(String registeredClientId, String principalName);
+}
+````
+
+### [Authorization Consent Service](https://docs.spring.io/spring-authorization-server/docs/current/reference/html/guides/how-to-jpa.html#authorization-consent-service)
+
+El siguiente listado muestra el JpaOAuth2AuthorizationConsentService, que utiliza un AuthorizationConsentRepository para
+persistir un AuthorizationConsent y mapea hacia y desde el objeto de dominio OAuth2AuthorizationConsent.
+
+````java
+
+@RequiredArgsConstructor
+@Service
+public class JpaOAuth2AuthorizationConsentService implements OAuth2AuthorizationConsentService {
+
+    private final IAuthorizationConsentRepository authorizationConsentRepository;
+    private final RegisteredClientRepository registeredClientRepository;
+
+    @Override
+    public void save(OAuth2AuthorizationConsent authorizationConsent) {
+        Assert.notNull(authorizationConsent, "authorizationConsent no puede ser nulo");
+        this.authorizationConsentRepository.save(toEntity(authorizationConsent));
+    }
+
+    @Override
+    public void remove(OAuth2AuthorizationConsent authorizationConsent) {
+        Assert.notNull(authorizationConsent, "authorizationConsent no puede ser nulo");
+        this.authorizationConsentRepository.deleteByRegisteredClientIdAndPrincipalName(
+                authorizationConsent.getRegisteredClientId(), authorizationConsent.getPrincipalName());
+    }
+
+    @Override
+    public OAuth2AuthorizationConsent findById(String registeredClientId, String principalName) {
+        Assert.hasText(registeredClientId, "registeredClientId no puede estar vacío");
+        Assert.hasText(principalName, "principalName no puede estar vacío");
+        return this.authorizationConsentRepository.findByRegisteredClientIdAndPrincipalName(
+                registeredClientId, principalName).map(this::toObject).orElse(null);
+    }
+
+    private OAuth2AuthorizationConsent toObject(AuthorizationConsent authorizationConsent) {
+        String registeredClientId = authorizationConsent.getRegisteredClientId();
+        RegisteredClient registeredClient = this.registeredClientRepository.findById(registeredClientId);
+        if (registeredClient == null) {
+            throw new DataRetrievalFailureException("El RegisteredClient con id '" + registeredClientId + "' no se encontró en RegisteredClientRepository.");
+        }
+
+        OAuth2AuthorizationConsent.Builder builder = OAuth2AuthorizationConsent.withId(registeredClientId, authorizationConsent.getPrincipalName());
+        if (authorizationConsent.getAuthorities() != null) {
+            for (String authority : StringUtils.commaDelimitedListToSet(authorizationConsent.getAuthorities())) {
+                builder.authority(new SimpleGrantedAuthority(authority));
+            }
+        }
+
+        return builder.build();
+    }
+
+    private AuthorizationConsent toEntity(OAuth2AuthorizationConsent authorizationConsent) {
+        AuthorizationConsent entity = new AuthorizationConsent();
+        entity.setRegisteredClientId(authorizationConsent.getRegisteredClientId());
+        entity.setPrincipalName(authorizationConsent.getPrincipalName());
+
+        Set<String> authorities = new HashSet<>();
+        for (GrantedAuthority authority : authorizationConsent.getAuthorities()) {
+            authorities.add(authority.getAuthority());
+        }
+        entity.setAuthorities(StringUtils.collectionToCommaDelimitedString(authorities));
+
+        return entity;
+    }
+}
+````
+
+**NOTA**
+
+> Como ahora el consentimiento lo persistimos en la base de datos, **es necesario eliminar** el @Bean del servicio
+> SecurityConfig:
+
+````
+//@Bean
+//public OAuth2AuthorizationConsentService authorizationConsentService() {
+//    return new InMemoryOAuth2AuthorizationConsentService();
+//}
+````
+
+## Verificando la persistencia del consentimiento del usuario en la base de datos
+
+Levantamos los tres proyectos, y nos logueamos con los tres usuarios que tenemos en la base de datos. La primera vez que
+iniciemos sesión nos mostrará la pantalla de consentimiento, damos clic en `check` y `Submit Consent`. La pantalla que
+veremos para cada usuario es el siguiente:
+
+![41-consentimiento-usuarios.png](./assets/41-consentimiento-usuarios.png)
+
+Si verificamos la base de datos vemos que se han registrado los consentimientos de los usuarios:
+
+![42-consentimiento-saved.png](./assets/42-consentimiento-saved.png)
+
+Ahora, si intentamos logueanos nuevamente con los mismos usuarios `la pantalla de consentimiento ya no nos aparecerá`, 
+solo nos muestra la primera vez para nosotros darle permiso de consentimiento.

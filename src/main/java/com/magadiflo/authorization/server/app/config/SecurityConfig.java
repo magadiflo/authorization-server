@@ -137,11 +137,6 @@ public class SecurityConfig {
         return new InMemoryOAuth2AuthorizationService();
     }
 
-    @Bean
-    public OAuth2AuthorizationConsentService authorizationConsentService() {
-        return new InMemoryOAuth2AuthorizationConsentService();
-    }
-
     private static RSAKey generateRSAKey() {
         KeyPair keyPair = generateKeyPair();
         RSAPublicKey publicKey = (RSAPublicKey) keyPair.getPublic();
