@@ -2423,6 +2423,7 @@ AuthorizationConsent por los campos `registeredClientId` y `principalName` que `
 ````java
 public interface IAuthorizationConsentRepository extends JpaRepository<AuthorizationConsent, AuthorizationConsent.AuthorizationConsentId> {
     Optional<AuthorizationConsent> findByRegisteredClientIdAndPrincipalName(String registeredClientId, String principalName);
+
     void deleteByRegisteredClientIdAndPrincipalName(String registeredClientId, String principalName);
 }
 ````
@@ -2433,6 +2434,7 @@ El siguiente listado muestra el JpaOAuth2AuthorizationConsentService, que utiliz
 persistir un AuthorizationConsent y mapea hacia y desde el objeto de dominio OAuth2AuthorizationConsent.
 
 ````java
+
 @RequiredArgsConstructor
 @Service
 public class JpaOAuth2AuthorizationConsentService implements OAuth2AuthorizationConsentService {
@@ -2492,4 +2494,16 @@ public class JpaOAuth2AuthorizationConsentService implements OAuth2Authorization
         return entity;
     }
 }
+````
+
+**NOTA**
+
+> Como ahora el consentimiento lo persistimos en la base de datos, **es necesario eliminar** el @Bean del servicio
+> SecurityConfig:
+
+````
+//@Bean
+//public OAuth2AuthorizationConsentService authorizationConsentService() {
+//    return new InMemoryOAuth2AuthorizationConsentService();
+//}
 ````
