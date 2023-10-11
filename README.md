@@ -2305,3 +2305,67 @@ cliente:
 ````html
 <a th:href="@{http://localhost:4200}" class="btn btn-lg btn-outline-secondary btn-block">NO</a>
 ````
+
+---
+
+# CAPÍTULO 14: Pantalla de consentimiento
+
+---
+
+## Habilitando pantalla de consentimiento
+
+Para poder ver la pantalla de consentimiento necesitamos modificar el `RegisteredClient` que es el usuario con el que
+se trabaja dentro de la arquitectura de OAuth 2. Esta modificación se realizará en la entity `Client`, ya que allí
+definimos el método que nos retornará un `RegisteredClient`:
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Data
+@Entity
+@Table(name = "clients")
+public class Client {
+    /* properties */
+
+    public static RegisteredClient toRegisteredClient(Client client) {
+        return RegisteredClient.withId(client.getClientId())
+                /* other configurations */
+                .clientSettings(ClientSettings.builder()
+                        .requireProofKey(client.isRequireProofKey())
+                        .requireAuthorizationConsent(true)
+                        .build())
+                .build();
+    }
+}
+````
+
+Listo, levantamos el Servidor de Autorización, Servidor de Recurso y nuestro Cliente Angular, tratamos de iniciar sesión
+(en mi caso usaré google) y a continuación seremos redireccionados a la siguiente pantalla:
+
+![40-pantalla-de-consentimiento](./assets/40-pantalla-de-consentimiento.png)
+
+En la pantalla anterior damos `check` en `profile` y luego en el botón `submit`. Si a continuación cerramos sesión y
+volvemos a loguearnos, el servidor de autorización `ya no nos mostrará dicha pantalla de consentimiento`, ya que nuestra
+elección fue almacenado en memoria del servidor de autorización, para ser más precisos en el siguiente `@Bean`:
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@EnableWebSecurity
+@Configuration
+public class SecurityConfig {
+    /* other code */
+    @Bean
+    public OAuth2AuthorizationConsentService authorizationConsentService() {
+        return new InMemoryOAuth2AuthorizationConsentService();
+    }
+}
+````
+
+Ahora, si reiniciamos el servidor de autorización y nos logueamos nuevamente con el mismo usuario, **nos volverá a
+mostrar la pantalla de consentimiento**, ya que nuestra elección anterior se elimina una vez que se reinicie el servidor
+de autorización, ¿por qué? `Porque está almacenando en memoria`.
+
