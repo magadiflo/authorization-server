@@ -2369,3 +2369,48 @@ Ahora, si reiniciamos el servidor de autorización y nos logueamos nuevamente co
 mostrar la pantalla de consentimiento**, ya que nuestra elección anterior se elimina una vez que se reinicie el servidor
 de autorización, ¿por qué? `Porque está almacenando en memoria`.
 
+## Persistiendo consentimiento en Base de Datos
+
+Para persistir la selección del usuario en relación al consentimiento otorgado a la aplicación, crearemos un entidad, su
+repositorio y su respectivo servicio guiándonos de la plantilla proporcionada en la documentación de Spring.
+
+### [Authorization Consent Entity](https://docs.spring.io/spring-authorization-server/docs/current/reference/html/guides/how-to-jpa.html#authorization-consent-entity)
+
+El siguiente listado muestra la entidad `AuthorizationConsent`, que se utiliza para persistir la información mapeada
+desde el objeto de dominio OAuth2AuthorizationConsent.
+
+````java
+
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
+@Entity
+@Table(name = "authorization_consents")
+@IdClass(AuthorizationConsent.AuthorizationConsentId.class)
+public class AuthorizationConsent {
+    @Id
+    private String registeredClientId;
+    @Id
+    private String principalName;
+    @Column(length = 1000)
+    private String authorities;
+
+    public static class AuthorizationConsentId implements Serializable {
+        private String registeredClientId;
+        private String principalName;
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            AuthorizationConsentId that = (AuthorizationConsentId) o;
+            return registeredClientId.equals(that.registeredClientId) && principalName.equals(that.principalName);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(registeredClientId, principalName);
+        }
+    }
+}
+````
