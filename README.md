@@ -2414,3 +2414,15 @@ public class AuthorizationConsent {
     }
 }
 ````
+
+### [Authorization Consent Repository](https://docs.spring.io/spring-authorization-server/docs/current/reference/html/guides/how-to-jpa.html#authorization-consent-repository)
+
+El siguiente listado muestra el `IAuthorizationConsentRepository`, que es capaz de encontrar y eliminar un
+AuthorizationConsent por los campos `registeredClientId` y `principalName` que `forman una clave primaria compuesta`.
+
+````java
+public interface IAuthorizationConsentRepository extends JpaRepository<AuthorizationConsent, AuthorizationConsent.AuthorizationConsentId> {
+    Optional<AuthorizationConsent> findByRegisteredClientIdAndPrincipalName(String registeredClientId, String principalName);
+    void deleteByRegisteredClientIdAndPrincipalName(String registeredClientId, String principalName);
+}
+````
