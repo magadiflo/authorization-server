@@ -2507,3 +2507,18 @@ public class JpaOAuth2AuthorizationConsentService implements OAuth2Authorization
 //    return new InMemoryOAuth2AuthorizationConsentService();
 //}
 ````
+
+## Verificando la persistencia del consentimiento del usuario en la base de datos
+
+Levantamos los tres proyectos, y nos logueamos con los tres usuarios que tenemos en la base de datos. La primera vez que
+iniciemos sesión nos mostrará la pantalla de consentimiento, damos clic en `check` y `Submit Consent`. La pantalla que
+veremos para cada usuario es el siguiente:
+
+![41-consentimiento-usuarios.png](./assets/41-consentimiento-usuarios.png)
+
+Si verificamos la base de datos vemos que se han registrado los consentimientos de los usuarios:
+
+![42-consentimiento-saved.png](./assets/42-consentimiento-saved.png)
+
+Ahora, si intentamos logueanos nuevamente con los mismos usuarios `la pantalla de consentimiento ya no nos aparecerá`, 
+solo nos muestra la primera vez para nosotros darle permiso de consentimiento.
